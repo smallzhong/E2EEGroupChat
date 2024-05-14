@@ -1,6 +1,6 @@
 #  E2EEGroupChat
 
-[中文README](README_CN.md) 
+[中文README](README_CN.MD) 
 
 E2EEGroupChat is a real-time end-to-end encrypted (E2EE) group chat application based on WebSocket. Using RSA and AES encryption technologies, it ensures that messages are not exposed to the server or any third parties during transmission. **The design philosophy of this application considers the server as a potentially malicious middleman**. Therefore, the server does not store any plaintext or keys; it only forwards encrypted messages. Even if the server is compromised and becomes a malicious middleman, the attackers cannot eavesdrop on any user messages. **For detailed encryption process, see the swim lane diagram: https://chat.yuchu.space/swim-lane-en.html**.
 
