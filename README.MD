@@ -44,6 +44,7 @@ You can try it out at https://chat.yuchu.space/?lounge.
 -  **Support Custom Nicknames**: Allow users to set their own nicknames to enhance user experience.
 -  **Optimize Frontend User Display**: Modify the frontend to display nicknames and parts of their signatures instead of just SHA256 hashes. Generate a unique color for each user based on their RSA signature, making it easier to distinguish between different chat participants.
 -  **Support Markdown Syntax**: Allow users to use Markdown syntax in messages and fix the issue of line breaks not displaying properly.
+-  **Support image sharing**: Allow users to share images in the chat, ensuring that images are also protected with end-to-end encryption.
 
 ## Contribution Guidelines
 
