@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swimlane Diagram</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true });
+    </script>
+</head>
+<body>
+    <div class="mermaid">
+        sequenceDiagram
+            autonumber
+            participant User
+            participant Frontend as Frontend Application
+            participant Server as WebSocket Server
+
+            User ->> Frontend: Open chat page (URL contains channel ID)
+            Frontend ->> Frontend: Retrieve channel ID from URL
+            Frontend ->> Frontend: Generate RSA key pair
+            Frontend ->> Server: Connect to WebSocket server
+            Server ->> Frontend: Confirm connection
+            Frontend ->> Server: Send join channel request (public key and channel ID)
+            Server ->> Server: Process join channel request
+            Server ->> Server: Generate public key hash and store
+            Server ->> Server: Update channel user list
+            Server ->> Frontend: Return public keys of other users in the channel
+            Frontend ->> Frontend: Store public keys of other users
+            Frontend ->> Frontend: Generate AES key
+            Frontend ->> Server: Encrypt AES key and send to other users
+            Server ->> Frontend: Forward encrypted AES key to other users
+            Frontend ->> Frontend: Decrypt received AES key and store
+            User ->> Frontend: Input message and send
+            Frontend ->> Frontend: Encrypt message with AES key
+            Frontend ->> Server: Send encrypted message
+            Server ->> Server: Forward encrypted message
+            Server ->> Frontend: Broadcast encrypted message to other users
+            Frontend ->> Frontend: Decrypt and display message
+            Server ->> Frontend: Send heartbeat
+            Frontend ->> Server: Return heartbeat
+            User ->> Frontend: Disconnect or close page
+            Frontend ->> Server: Disconnect notification
+            Server ->> Server: Handle user departure
+            Server ->> Frontend: Notify other users that the user has left
+            Frontend ->> Frontend: Update user list
+            Frontend ->> Frontend: Randomly select a user in the channel to generate a new AES key
+            Frontend ->> Server: Encrypt new AES key and send to other users
+            Server ->> Frontend: Forward encrypted new AES key to other users
+            Frontend ->> Frontend: Decrypt received new AES key and store
+    </div>
+</body>
+</html>

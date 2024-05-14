@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swimlane Diagram</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true });
+    </script>
+</head>
+<body>
+    <div class="mermaid">
+        sequenceDiagram
+            autonumber
+            participant User
+            participant Frontend as Frontend Application
+            participant Server as WebSocket Server
+
+            User ->> Frontend: 打开聊天页面 (URL 包含频道 ID)
+            Frontend ->> Frontend: 从 URL 中获取频道 ID
+            Frontend ->> Frontend: 生成 RSA 密钥对
+            Frontend ->> Server: 连接到 WebSocket 服务器
+            Server ->> Frontend: 确认连接
+            Frontend ->> Server: 发送加入频道请求（公钥和频道 ID）
+            Server ->> Server: 处理加入频道请求
+            Server ->> Server: 生成公钥哈希并存储
+            Server ->> Server: 更新频道用户列表
+            Server ->> Frontend: 返回频道内其他用户的公钥
+            Frontend ->> Frontend: 存储其他用户的公钥
+            Frontend ->> Frontend: 生成 AES 密钥
+            Frontend ->> Server: 加密 AES 密钥并发送给其他用户
+            Server ->> Frontend: 转发加密的 AES 密钥给其他用户
+            Frontend ->> Frontend: 解密收到的 AES 密钥并存储
+            User ->> Frontend: 输入消息并发送
+            Frontend ->> Frontend: 使用 AES 密钥加密消息
+            Frontend ->> Server: 发送加密消息
+            Server ->> Server: 转发加密消息
+            Server ->> Frontend: 广播加密消息给其他用户
+            Frontend ->> Frontend: 解密并显示消息
+            Server ->> Frontend: 发送心跳包
+            Frontend ->> Server: 返回心跳包
+            User ->> Frontend: 断开连接或关闭页面
+            Frontend ->> Server: 断开连接通知
+            Server ->> Server: 处理用户离开
+            Server ->> Frontend: 通知其他用户该用户已离开
+            Frontend ->> Frontend: 更新用户列表
+            Frontend ->> Frontend: 随机让一个频道中的用户生成新的 AES 密钥
+            Frontend ->> Server: 加密新的 AES 密钥并发送给其他用户
+            Server ->> Frontend: 转发加密的新的 AES 密钥给其他用户
+            Frontend ->> Frontend: 解密收到的新的 AES 密钥并存储
+    </div>
+</body>
+</html>
