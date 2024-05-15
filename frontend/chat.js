@@ -161,6 +161,21 @@ function connectWebSocket() {
     };
 }
 
+function appendMyFingerprintToChatBox() {
+    const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);
+    const fingerprint = getShortHash(myPublicKeyHash);
+    const fingerprintColor = getColorFromSHA256(myPublicKeyHash);
+    const chatBox = document.getElementById('chat-box');
+    const messageElem = document.createElement('p');
+    const fingerprintSpan = document.createElement('span');
+    fingerprintSpan.textContent = `我的公钥哈希: ${fingerprint}`;
+    fingerprintSpan.style.color = fingerprintColor;
+    fingerprintSpan.classList.add("message-text");
+    messageElem.appendChild(fingerprintSpan);
+    chatBox.appendChild(messageElem);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
 function joinChannel(channelId) {
     const publicKeyPem = forge.pki.publicKeyToPem(g_myPublicKey);
     const message = JSON.stringify({ action: 'join', channel_id: channelId, public_key: publicKeyPem });
@@ -168,6 +183,7 @@ function joinChannel(channelId) {
     document.getElementById('status-message').innerText = '加入成功';
     document.getElementById('input-message').disabled = false; // 启用消息输入框
     updateUsersList(); // 更新用户列表
+    appendMyFingerprintToChatBox(); // Append fingerprint to chat box
 }
 
 function sendMessage() {
