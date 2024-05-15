@@ -10,6 +10,8 @@ let g_reconnectInterval = 5000;  // 重连间隔时间，5秒
 let g_unreadMessages = 0;
 let g_isPageFocused = true;
 let g_myNickName = "匿名";
+let g_pendingNewMembers = []; // 存储待处理的新成员公钥哈希
+
 
 function updatePageTitle() {
     if (g_unreadMessages > 0) {
@@ -173,7 +175,7 @@ function sendMessage() {
     const message = input.value.trim();
     input.value = '';  // 清空输入框
     if (message !== '') {
-        const encryptedMessage = encryptMessage(JSON.stringify({ message: message }));
+        const encryptedMessage = encryptMessage(JSON.stringify({ message: message, change_nickname: g_myNickName }));
         g_websocket.send(JSON.stringify({
             action: 'send_message',
             channel_id: g_channel_id,
@@ -259,6 +261,8 @@ function handleIncomingMessage(data) {
                     md: forge.md.sha256.create()
                 }
             });
+            // 处理所有待处理的新成员
+            sendNicknamesToNewMembers();
             break;
         case 'member_left':
             console.log(data);
@@ -309,22 +313,20 @@ function handleIncomeMessage(encryptedMessage, publicKeyHash) {
 function handleIncomeMessageJsonFields(publicKeyHash, json) {
     for (const key in json) {
         if (json.hasOwnProperty(key)) {
-            switch (key) {
-                case 'message':
-                    const nickname = getNickname(publicKeyHash);
-                    const fingerprint = getShortHash(publicKeyHash);
-                    const fingerprintColor = getColorFromSHA256(publicKeyHash);
-                    appendMessageToChatBox(nickname, fingerprint, json[key], fingerprintColor);
-                    break;
-                case 'change_nickname':
-                    handleChangeNickname(publicKeyHash, json[key]);
-                    break;
-                default:
-                    console.warn(`Unknown field: ${key}`);
+            if (key === 'change_nickname') {
+                handleChangeNickname(publicKeyHash, json[key]);
+            } else if (key === 'message') {
+                const nickname = getNickname(publicKeyHash);
+                const fingerprint = getShortHash(publicKeyHash);
+                const fingerprintColor = getColorFromSHA256(publicKeyHash);
+                appendMessageToChatBox(nickname, fingerprint, json[key], fingerprintColor);
+            } else {
+                console.warn(`Unknown field: ${key}`);
             }
         }
     }
 }
+
 
 function verifySignature(publicKeyHash, utf8MessageBytes, signature) {
     const publicKey = g_otherPublicKeys[publicKeyHash];
@@ -380,6 +382,7 @@ function handleMemberLeft(publicKeyHash) {
 }
 
 function handleNewMemberJoin(publicKeyHash) {
+    g_userNicknames[publicKeyHash] = "匿名";
     updateUsersList();
     const chatBox = document.getElementById('chat-box');
     const messageElem = document.createElement('p');
@@ -392,7 +395,29 @@ function handleNewMemberJoin(publicKeyHash) {
     messageElem.appendChild(fingerprintSpan);
     chatBox.appendChild(messageElem);
     chatBox.scrollTop = chatBox.scrollHeight;
+
+    // 添加到待处理队列而不是立即发送昵称
+    g_pendingNewMembers.push(publicKeyHash);
 }
+
+function sendNicknamesToNewMembers() {
+    while (g_pendingNewMembers.length > 0) {
+        const publicKeyHash = g_pendingNewMembers.shift(); // 从队列中取出一个新成员
+        sendNicknamesToNewMember(publicKeyHash);
+    }
+}
+
+function sendNicknamesToNewMember(newMemberPublicKeyHash) {
+    if (g_myNickName !== "匿名") {
+        const encryptedMessage = encryptMessage(JSON.stringify({ change_nickname: g_myNickName }));
+        g_websocket.send(JSON.stringify({
+            action: 'send_message',
+            channel_id: g_channel_id,
+            encrypted_message: encryptedMessage
+        }));
+    }
+}
+
 
 function updateUsersList() {
     const usersList = document.getElementById('users-list');
@@ -457,6 +482,10 @@ function changeNickname(nickname) {
 }
 
 function handleChangeNickname(publicKeyHash, nickname) {
+    // 如果已经设置了，不用修改。
+    if (g_userNicknames[publicKeyHash] === nickname) {
+        return;
+    }
     g_userNicknames[publicKeyHash] = nickname;
     updateUsersList();
     const chatBox = document.getElementById('chat-box');
