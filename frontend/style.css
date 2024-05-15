@@ -18,8 +18,10 @@
 #chat-box {
     flex-grow: 1;
     overflow-y: auto;
-    padding: 10px; /* 可以根据需要调整内边距 */
-    word-wrap: break-word; /* 自动换行，防止溢出 */
+    padding: 10px;
+    /* 可以根据需要调整内边距 */
+    word-wrap: break-word;
+    /* 自动换行，防止溢出 */
 }
 
 /* 输入消息框样式 */
@@ -42,17 +44,25 @@
 
 /* 调整容器宽度 */
 .container-fluid {
-    padding: 0; /* 移除容器的内边距 */
+    padding: 0;
+    /* 移除容器的内边距 */
 }
 
 /* 调整顶部栏样式 */
 #top-bar {
-    padding: 10px; /* 可以根据需要调整内边距 */
+    padding: 10px;
+    /* 可以根据需要调整内边距 */
 }
 
 /* 调整输入容器样式 */
 #input-container {
-    padding: 10px; /* 可以根据需要调整内边距 */
+    padding: 10px;
+    /* 可以根据需要调整内边距 */
+}
+
+/* 等宽字体 */
+.message-text {
+    font-family: 'Courier New', Courier, monospace;
 }
 
 /* 强制模态框全屏显示在小屏设备上 */
@@ -62,9 +72,11 @@
         max-width: 100%;
         height: 100%;
     }
+
     .modal-content {
         height: 100%;
     }
+
     .modal-body {
         overflow-y: auto;
     }

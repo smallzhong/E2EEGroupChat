@@ -15,6 +15,7 @@
                 <div id="channel-info"><span id="current-channel-id"></span></div>
                 <div id="status-message">正在连接...</div>
                 <button id="toggle-users-list" class="btn btn-primary btn-sm" data-toggle="modal" data-target="#usersModal">在线用户</button>
+                <button id="set-nickname-button" class="btn btn-secondary btn-sm" data-toggle="modal" data-target="#nicknameModal">设置昵称</button>
             </div>
             <div id="chat-box" class="flex-grow-1 p-2 overflow-auto"></div>
             <div id="input-container" class="border-top p-2 bg-light">
@@ -23,7 +24,7 @@
         </div>
     </div>
 
-    <!-- Modal -->
+    <!-- Users Modal -->
     <div class="modal fade" id="usersModal" tabindex="-1" aria-labelledby="usersModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-scrollable">
             <div class="modal-content">
@@ -38,6 +39,27 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Nickname Modal -->
+    <div class="modal fade" id="nicknameModal" tabindex="-1" aria-labelledby="nicknameModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="nicknameModalLabel">设置昵称</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" id="nickname-input" class="form-control" placeholder="输入你的昵称">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+                    <button type="button" class="btn btn-primary" id="save-nickname-button">保存</button>
                 </div>
             </div>
         </div>

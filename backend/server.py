@@ -6,6 +6,12 @@ import ssl
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import hashes
+import hashlib
+
+
+def LOG_DEBUG(msg):
+    msg = "[debug]:" + msg
+    # print(msg)
 
 
 def LOG(msg):
@@ -27,10 +33,11 @@ class Server:
         self.last_package = {}
 
     def hash_public_key(self, public_key):
-        digest = hashes.Hash(hashes.SHA256())
-        digest.update(public_key.public_bytes(encoding=serialization.Encoding.PEM,
-                                              format=serialization.PublicFormat.SubjectPublicKeyInfo))
-        return digest.finalize().hex()
+        der = public_key.public_bytes(encoding=serialization.Encoding.DER,
+                                      format=serialization.PublicFormat.SubjectPublicKeyInfo)
+        digest = hashlib.sha256(der).hexdigest()
+        print(digest)
+        return digest
 
     async def handler(self, websocket, path):
         client_info = {'websocket': websocket, 'public_key': None, 'public_key_hash': None}
@@ -47,16 +54,18 @@ class Server:
                     continue
 
                 data = json.loads(message)
-                LOG(f'{data}')
                 self.last_package[websocket] = time.time()
                 if 'action' in data:
                     if data['action'] == 'heartbeat':
                         self.last_package[websocket] = time.time()
                     elif data['action'] == 'join':
+                        LOG(f'{data}')
                         self.join_channel(data, client_info)
                     elif data['action'] == 'send_key':
+                        LOG(f'{data}')
                         await self.send_key(data, client_info)
                     elif data['action'] == 'send_message':
+                        LOG(f'{data}')
                         await self.send_message(data, client_info)
         except websockets.exceptions.ConnectionClosedError as e:
             LOG(f'WebSocket connection closed: {e.code} - {e.reason}')
