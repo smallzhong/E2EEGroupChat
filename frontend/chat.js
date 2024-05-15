@@ -7,13 +7,13 @@ let g_otherPublicKeys = {};
 let g_userNicknames = {}; // 保存用户的昵称
 let g_channel_id = null;
 let g_reconnectInterval = 5000;  // 重连间隔时间，5秒
-let unreadMessages = 0;
-let isPageFocused = true;
+let g_unreadMessages = 0;
+let g_isPageFocused = true;
 let g_myNickName = "匿名";
 
 function updatePageTitle() {
-    if (unreadMessages > 0) {
-        document.title = `(${unreadMessages}) ?${g_channel_id}`;
+    if (g_unreadMessages > 0) {
+        document.title = `(${g_unreadMessages}) ?${g_channel_id}`;
     } else {
         document.title = g_channel_id;
     }
@@ -21,11 +21,11 @@ function updatePageTitle() {
 
 document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
-        isPageFocused = true;
-        unreadMessages = 0; // 重置未读消息计数
+        g_isPageFocused = true;
+        g_unreadMessages = 0; // 重置未读消息计数
         updatePageTitle();
     } else {
-        isPageFocused = false;
+        g_isPageFocused = false;
     }
 });
 
@@ -230,8 +230,8 @@ function handleIncomingMessage(data) {
         case 'receive_message':
             console.log(data);
             handleIncomeMessage(messageData.encrypted_message, messageData.public_key_hash);
-            if (!isPageFocused) {
-                unreadMessages++;
+            if (!g_isPageFocused) {
+                g_unreadMessages++;
                 updatePageTitle();
             }
             break;
@@ -241,6 +241,10 @@ function handleIncomingMessage(data) {
             if (!g_otherPublicKeys.hasOwnProperty(messageData.public_key_hash)) {
                 g_otherPublicKeys[messageData.public_key_hash] = publicKey;
                 handleNewMemberJoin(messageData.public_key_hash);
+                if (!g_isPageFocused) {
+                    g_unreadMessages++;
+                    updatePageTitle();
+                }
             }
             break;
         case 'generate_aes_key':
@@ -259,6 +263,10 @@ function handleIncomingMessage(data) {
         case 'member_left':
             console.log(data);
             handleMemberLeft(messageData.public_key_hash);
+            if (!g_isPageFocused) {
+                g_unreadMessages++;
+                updatePageTitle();
+            }
             break;
         default:
             console.warn('Unknown action:', messageData.action);
