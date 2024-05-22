@@ -12,6 +12,58 @@ let g_isPageFocused = true;
 let g_myNickName = "匿名";
 let g_pendingNewMembers = []; // 存储待处理的新成员公钥哈希
 
+document.getElementById('upload-image-button').addEventListener('click', function () {
+    document.getElementById('image-input').click(); // 触发文件选择
+});
+
+document.getElementById('image-input').addEventListener('change', function (event) {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            const base64Image = e.target.result;
+            // 显示图片预览
+            const imagePreview = document.getElementById('image-preview');
+            // 这是不是能防止潜在的DOM XSS（
+            // 好像不会，读进来应该就是base64的，不会因为读了什么奇怪东西就引入XSS，不过加了也不会慢很多，管他呢（逃
+            if (isValidBase64Image(base64Image)) {
+                imagePreview.innerHTML = `<img src="${base64Image}" style="max-width:200px;">`;
+                // 存储图片数据，以便发送
+                imagePreview.dataset.base64 = base64Image;
+                document.getElementById('input-message').focus(); // 图片加载后聚焦到输入框
+            }
+            else {
+                alert("好像读取到的不是图片格式。");
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+});
+
+function innerSendImageBase64(base64Image) {
+    const encryptedMessage = encryptMessage(JSON.stringify({ base64Image: base64Image, change_nickname: g_myNickName }));
+    g_websocket.send(JSON.stringify({
+        action: 'send_message',
+        channel_id: g_channel_id,
+        encrypted_message: encryptedMessage
+    }));
+    // 展示自己的消息
+    const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);
+    const myNickname = g_myNickName;
+    const fingerprint = getShortHash(myPublicKeyHash);
+    const fingerprintColor = getColorFromSHA256(myPublicKeyHash);
+    appendImageToChatBox(myNickname, fingerprint, base64Image, fingerprintColor);
+}
+
+function innerSendMessage(message) {
+    const encryptedMessage = encryptMessage(JSON.stringify({ message: message, change_nickname: g_myNickName }));
+    g_websocket.send(JSON.stringify({
+        action: 'send_message',
+        channel_id: g_channel_id,
+        encrypted_message: encryptedMessage
+    }));
+}
+
 
 function updatePageTitle() {
     if (g_unreadMessages > 0) {
@@ -92,8 +144,54 @@ function appendPlainMessageToChatBox(message) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
+function innerAppendMessageToChatBox(nickname, fingerprint, message, fingerprintColor) {
+    const chatBox = document.getElementById('chat-box');
+    const messageElem = document.createElement('p');
 
-function appendMessageToChatBox(nickname, fingerprint, message, fingerprintColor) {
+    const nicknameText = document.createTextNode(` ${nickname}: `);
+    const fingerprintSpan = document.createElement('span');
+    fingerprintSpan.textContent = fingerprint;
+    fingerprintSpan.style.color = fingerprintColor;
+    fingerprintSpan.classList.add("message-text");
+    messageElem.appendChild(fingerprintSpan);
+    messageElem.appendChild(nicknameText);
+    messageElem.appendChild(document.createTextNode(message));
+
+    // 安全地处理换行符
+    // const lines = message.split('\n');
+    // lines.forEach((line, index) => {
+    //     messageElem.appendChild(document.createTextNode(line));
+    //     if (index < lines.length - 1) {
+    //         messageElem.appendChild(document.createElement('br'));
+    //     }
+    // });
+
+    chatBox.appendChild(messageElem);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function isValidBase64Image(message) {
+    // TODO: 可以考虑支持更多格式，但是我不确定哪些格式可能引入潜在的XSS或者IP泄露风险
+    // 正则表达式，检查是否以"data:image/jpeg;base64,"开头，后跟base64编码
+    const regex = /^data:image\/(jpeg|png|gif|bmp|webp|tiff|svg\+xml|ico|heic);base64,([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+    // 使用正则表达式测试输入的message
+    if (regex.test(message)) {
+        console.log('是正确图片base64编码');
+        return true; // 如果匹配，返回true
+    } else {
+        console.warn(`${message}可能是恶意的XSS payload！不符合base64图片规则！`);
+        return false; // 如果不匹配，返回false
+    }
+}
+
+function appendImageToChatBox(nickname, fingerprint, imageBase64, fingerprintColor) {
+    // 判断是否符合，不符合的话可能是恶意构造的XSS。
+    if (!isValidBase64Image(imageBase64)) {
+        console.log("isValidBase64Image失败！这可能是一次黑客攻击！");
+        return;
+    }
+
     const chatBox = document.getElementById('chat-box');
     const messageElem = document.createElement('p');
 
@@ -102,13 +200,17 @@ function appendMessageToChatBox(nickname, fingerprint, message, fingerprintColor
     fingerprintSpan.textContent = fingerprint;
     fingerprintSpan.style.color = fingerprintColor;
     fingerprintSpan.classList.add("message-text");
-    const closingParenText = document.createTextNode(`: ${message}`);
-
+    const closingParenText = document.createTextNode(`:`);
     messageElem.appendChild(fingerprintSpan);
     messageElem.appendChild(nicknameText);
     messageElem.appendChild(closingParenText);
     chatBox.appendChild(messageElem);
+    chatBox.innerHTML += `<img src="${imageBase64}" style="max-width:600px;">`;
     chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function appendMessageToChatBox(nickname, fingerprint, message, fingerprintColor) {
+    innerAppendMessageToChatBox(nickname, fingerprint, message, fingerprintColor);
 }
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -126,11 +228,28 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('status-message').innerText = '无效的频道 ID';
     }
 
+    document.getElementById('send-message-button').addEventListener('click', function () {
+        sendMessage();
+        const imagePreview = document.getElementById('image-preview');
+        if (imagePreview.dataset.base64) {
+            innerSendImageBase64(imagePreview.dataset.base64); // 发送图片
+            imagePreview.innerHTML = ''; // 清空预览
+            delete imagePreview.dataset.base64; // 清除存储的图片数据
+        }
+    });
+
     // 监听按 Enter 键发送消息和 Shift+Enter 换行
     document.getElementById('input-message').addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();  // 阻止默认的 Enter 行为
+            const imagePreview = document.getElementById('image-preview');
             sendMessage();
+            if (imagePreview.dataset.base64) {
+                console.log(imagePreview.dataset.base64);
+                innerSendImageBase64(imagePreview.dataset.base64); // 发送图片
+                imagePreview.innerHTML = ''; // 清空预览
+                delete imagePreview.dataset.base64; // 清除存储的图片数据
+            }
         }
     });
 
@@ -168,7 +287,7 @@ function appendMyFingerprintToChatBox() {
     const chatBox = document.getElementById('chat-box');
     const messageElem = document.createElement('p');
     const fingerprintSpan = document.createElement('span');
-    fingerprintSpan.textContent = `我的公钥哈希: ${fingerprint}`;
+    fingerprintSpan.textContent = `我的指纹: ${fingerprint}`;
     fingerprintSpan.style.color = fingerprintColor;
     fingerprintSpan.classList.add("message-text");
     messageElem.appendChild(fingerprintSpan);
@@ -191,12 +310,7 @@ function sendMessage() {
     const message = input.value.trim();
     input.value = '';  // 清空输入框
     if (message !== '') {
-        const encryptedMessage = encryptMessage(JSON.stringify({ message: message, change_nickname: g_myNickName }));
-        g_websocket.send(JSON.stringify({
-            action: 'send_message',
-            channel_id: g_channel_id,
-            encrypted_message: encryptedMessage
-        }));
+        innerSendMessage(message);
         // 展示自己的消息
         const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);
         const myNickname = g_myNickName;
@@ -239,7 +353,6 @@ function encryptMessage(message) {
 }
 
 function handleIncomingMessage(data) {
-
     const messageData = JSON.parse(data);
     switch (messageData.action) {
         case 'heartbeat':
@@ -336,6 +449,12 @@ function handleIncomeMessageJsonFields(publicKeyHash, json) {
                 const fingerprint = getShortHash(publicKeyHash);
                 const fingerprintColor = getColorFromSHA256(publicKeyHash);
                 appendMessageToChatBox(nickname, fingerprint, json[key], fingerprintColor);
+            } else if (key == 'base64Image') {
+                const nickname = getNickname(publicKeyHash);
+                const fingerprint = getShortHash(publicKeyHash);
+                const fingerprintColor = getColorFromSHA256(publicKeyHash);
+                appendImageToChatBox(nickname, fingerprint, json[key], fingerprintColor);
+
             } else {
                 console.warn(`Unknown field: ${key}`);
             }

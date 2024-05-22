@@ -159,7 +159,7 @@ ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 ssl_context.load_cert_chain('chat.yuchu.space.pem', 'chat.yuchu.space.key')
 
 server = Server()
-start_server = websockets.serve(server.handler, "0.0.0.0", 8765, ssl=ssl_context)
+start_server = websockets.serve(server.handler, "0.0.0.0", 8765, ssl=ssl_context, max_size=1024 * 1024 * 100) # 10MB
 
 asyncio.get_event_loop().run_until_complete(start_server)
 asyncio.get_event_loop().run_forever()

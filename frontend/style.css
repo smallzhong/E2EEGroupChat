@@ -81,3 +81,7 @@
         overflow-y: auto;
     }
 }
+
+#chat-box p {
+    white-space: pre-wrap; /* 保留空格和自动换行 */
+}
