@@ -1,4 +1,6 @@
 const g_uri = 'wss://chat.yuchu.space:8765';
+const nonceLifeTime = 300000; // nonce的生命是5分钟
+const nonceCleanUpInterval = 60000; // 每隔1分钟清理一次nonce
 let g_websocket = null;
 let g_myPrivateKey = null;
 let g_myPublicKey = null;
@@ -11,6 +13,8 @@ let g_unreadMessages = 0;
 let g_isPageFocused = true;
 let g_myNickName = "匿名";
 let g_pendingNewMembers = []; // 存储待处理的新成员公钥哈希
+let receivedNonces = new Map(); // 存储nonce和时间戳
+
 
 document.getElementById('upload-image-button').addEventListener('click', function () {
     document.getElementById('image-input').click(); // 触发文件选择
@@ -31,8 +35,7 @@ document.getElementById('image-input').addEventListener('change', function (even
                 // 存储图片数据，以便发送
                 imagePreview.dataset.base64 = base64Image;
                 document.getElementById('input-message').focus(); // 图片加载后聚焦到输入框
-            }
-            else {
+            } else {
                 alert("好像读取到的不是图片格式。");
             }
         };
@@ -43,9 +46,7 @@ document.getElementById('image-input').addEventListener('change', function (even
 function innerSendImageBase64(base64Image) {
     const encryptedMessage = encryptMessage(JSON.stringify({ base64Image: base64Image, change_nickname: g_myNickName }));
     g_websocket.send(JSON.stringify({
-        action: 'send_message',
-        channel_id: g_channel_id,
-        encrypted_message: encryptedMessage
+        action: 'send_message', channel_id: g_channel_id, encrypted_message: encryptedMessage
     }));
     // 展示自己的消息
     const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);
@@ -58,18 +59,17 @@ function innerSendImageBase64(base64Image) {
 function innerSendMessage(message) {
     const encryptedMessage = encryptMessage(JSON.stringify({ message: message, change_nickname: g_myNickName }));
     g_websocket.send(JSON.stringify({
-        action: 'send_message',
-        channel_id: g_channel_id,
-        encrypted_message: encryptedMessage
+        action: 'send_message', channel_id: g_channel_id, encrypted_message: encryptedMessage
     }));
 }
 
-
 function updatePageTitle() {
-    if (g_unreadMessages > 0) {
-        document.title = `(${g_unreadMessages}) ?${g_channel_id}`;
-    } else {
-        document.title = g_channel_id;
+    if (g_channel_id) {
+        if (g_unreadMessages > 0) {
+            document.title = `(${g_unreadMessages}) ?${g_channel_id}`;
+        } else {
+            document.title = g_channel_id;
+        }
     }
 }
 
@@ -82,7 +82,6 @@ document.addEventListener('visibilitychange', function () {
         g_isPageFocused = false;
     }
 });
-
 
 forge.util.encodeUtf8 = function (str) {
     return unescape(encodeURIComponent(str));
@@ -213,20 +212,58 @@ function appendMessageToChatBox(nickname, fingerprint, message, fingerprintColor
     innerAppendMessageToChatBox(nickname, fingerprint, message, fingerprintColor);
 }
 
+function generateRandomChannel() {
+    let randomChannel = '';
+    const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < 8; i++) {
+        randomChannel += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return randomChannel;
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     const queryString = window.location.search.substring(1); // 去掉前面的 '?'
     const channelId = queryString ? queryString : null; // 如果有查询参数，则取其值，否则返回 null
     console.log("channelid = " + channelId);
 
+    const dynamicStylesheet = document.getElementById('dynamic-stylesheet');
+
     if (channelId) {
+        dynamicStylesheet.href = 'style_chat-container.css'; // 加载聊天窗口的CSS文件
         document.getElementById('status-message').innerText = '正在生成 RSA 密钥...';
         g_myPrivateKey = forge.pki.rsa.generateKeyPair(2048).privateKey;
         g_myPublicKey = forge.pki.rsa.setPublicKey(g_myPrivateKey.n, g_myPrivateKey.e);
         g_channel_id = channelId;
+        updatePageTitle();
         connectWebSocket();
+        // 隐藏主页，显示聊天容器
+        document.getElementById('home-container').style.display = 'none';
+        document.getElementById('chat-container').style.display = 'block';
     } else {
-        document.getElementById('status-message').innerText = '无效的频道 ID';
+        // 先把当前的网址链接填进去
+        const currentUrl = window.location.origin;
+        // Update example links
+        document.getElementById('example-channel-link').href = `${currentUrl}/?your-channel`;
+        document.getElementById('example-channel-link').textContent = `${currentUrl}/?your-channel`;
+        document.getElementById('lounge-link').href = `${currentUrl}/?lounge`;
+        document.getElementById('programming-link').href = `${currentUrl}/?programming`;
+        document.getElementById('games-link').href = `${currentUrl}/?games`;
+        document.getElementById('example-channel-code').textContent = `${currentUrl}/?lounge`;
+        // 生成随机频道链接
+        const randomChannelLink = document.getElementById('random-channel-link');
+        const randomChannelName = generateRandomChannel();
+        randomChannelLink.href = `${currentUrl}/?${randomChannelName}`;
+        randomChannelLink.textContent = `?${randomChannelName}`;
+
+        dynamicStylesheet.href = 'style_home-container.css';
+        // 显示主页，隐藏聊天容器
+        document.getElementById('home-container').style.display = 'block';
+        document.getElementById('chat-container').style.display = 'none';
+
+
     }
+
+
 
     document.getElementById('send-message-button').addEventListener('click', function () {
         sendMessage();
@@ -260,7 +297,21 @@ document.addEventListener('DOMContentLoaded', function () {
             $('#nicknameModal').modal('hide');
         }
     });
+
+    // 定期清理过期的nonce，每分钟执行一次
+    setInterval(cleanExpiredNonces, nonceCleanUpInterval);
 });
+
+function cleanExpiredNonces() {
+    console.log(`inside cleanExpiredNonces function`);
+    const currentTime = Date.now();
+    for (let [nonce, timestamp] of receivedNonces.entries()) {
+        if (currentTime - timestamp > nonceLifeTime) { // 5分钟
+            console.log(`deleting ${nonce}`);
+            receivedNonces.delete(nonce);
+        }
+    }
+}
 
 function connectWebSocket() {
     g_websocket = new WebSocket(g_uri);
@@ -297,8 +348,11 @@ function appendMyFingerprintToChatBox() {
 
 function joinChannel(channelId) {
     const publicKeyPem = forge.pki.publicKeyToPem(g_myPublicKey);
-    const message = JSON.stringify({ action: 'join', channel_id: channelId, public_key: publicKeyPem });
-    g_websocket.send(message);
+    g_websocket.send(JSON.stringify({
+        action: 'join',
+        channel_id: channelId,
+        public_key: publicKeyPem
+    }));
     document.getElementById('status-message').innerText = '加入成功';
     document.getElementById('input-message').disabled = false; // 启用消息输入框
     updateUsersList(); // 更新用户列表
@@ -325,11 +379,19 @@ function encryptMessage(message) {
         console.error('AES key not set');
         return '';
     }
+    const nonce = forge.random.getBytesSync(16);
+    const timestamp = Date.now();
+    const messageWithNonceAndTimestamp = JSON.stringify({
+        nonce: forge.util.encode64(nonce),
+        timestamp: timestamp,
+        message: message
+    });
+
     const cipher = forge.cipher.createCipher('AES-CTR', g_aesKey);
     const iv = forge.random.getBytesSync(16);
     cipher.start({ iv: iv });
 
-    const utf8Message = forge.util.encodeUtf8(message);
+    const utf8Message = forge.util.encodeUtf8(messageWithNonceAndTimestamp);
     cipher.update(forge.util.createBuffer(utf8Message));
     if (!cipher.finish()) {
         console.error('Encryption failed');
@@ -340,10 +402,8 @@ function encryptMessage(message) {
     const md = forge.md.sha256.create();
     md.update(utf8Message, 'utf8');
     const digest = md.digest().bytes();
-    console.log(`SHA256 digest for message "${message}": ${forge.util.encode64(digest)}`);
 
     const signature = g_myPrivateKey.sign(md);
-    console.log(`Signature for message "${message}": ${forge.util.encode64(signature)}`);
 
     return JSON.stringify({
         nonce: forge.util.encode64(iv),
@@ -384,14 +444,7 @@ function handleIncomingMessage(data) {
             break;
         case 'receive_key':
             console.log(data);
-            g_aesKey = g_myPrivateKey.decrypt(forge.util.decode64(messageData.encrypted_key), 'RSA-OAEP', {
-                md: forge.md.sha256.create(),
-                mgf1: {
-                    md: forge.md.sha256.create()
-                }
-            });
-            // 处理所有待处理的新成员
-            sendNicknamesToNewMembers();
+            handleReceiveKey(messageData);
             break;
         case 'member_left':
             console.log(data);
@@ -404,6 +457,61 @@ function handleIncomingMessage(data) {
         default:
             console.warn('Unknown action:', messageData.action);
     }
+}
+
+function handleReceiveKey(data) {
+    const nonce = forge.util.decode64(data.nonce);
+    const timestamp = data.timestamp;
+    const encryptedKey = data.encrypted_key;
+    const signature = data.signature;
+    const senderPublicKeyHash = data.sender_public_key_hash;
+
+    // 检查时间戳是否过期
+    if ((Date.now() - timestamp) > nonceLifeTime) {
+        console.warn('Received key timestamp expired');
+        return;
+    }
+
+    // 检查 nonce 是否已被使用
+    if (receivedNonces.has(nonce)) {
+        console.warn('Replay attack detected');
+        return;
+    }
+
+    receivedNonces.set(nonce, timestamp);
+
+    // 验证签名
+    const publicKey = g_otherPublicKeys[senderPublicKeyHash];
+    if (!publicKey) {
+        console.error('Public key not found for hash:', senderPublicKeyHash);
+        return;
+    }
+
+    const t_aesKey = g_myPrivateKey.decrypt(forge.util.decode64(encryptedKey), 'RSA-OAEP', {
+        md: forge.md.sha256.create(), mgf1: {
+            md: forge.md.sha256.create()
+        }
+    });
+
+    const messageWithNonceAndTimestamp = JSON.stringify({
+        nonce: data.nonce,
+        timestamp: data.timestamp,
+        aesKey: forge.util.encode64(t_aesKey),
+    });
+    console.log(`接收方messageWithNonceAndTimestamp为 ${messageWithNonceAndTimestamp}`)
+
+    const md = forge.md.sha256.create();
+    md.update(messageWithNonceAndTimestamp, 'utf8');
+    if (!publicKey.verify(md.digest().bytes(), forge.util.decode64(signature))) {
+        console.error('Signature verification failed');
+        return;
+    }
+
+    // 检验通过了，可以放到g_aesKey。前面检验有一个不通过都不行。
+    g_aesKey = t_aesKey;
+
+    // 处理所有待处理的新成员
+    sendNicknamesToNewMembers();
 }
 
 function sendHeartbeat() {
@@ -429,8 +537,18 @@ function handleIncomeMessage(encryptedMessage, publicKeyHash) {
     if (verifySignature(publicKeyHash, utf8MessageBytes, signature)) {
         try {
             const messageJson = JSON.parse(utf8Message);
-            console.log(utf8Message)
-            handleIncomeMessageJsonFields(publicKeyHash, messageJson);
+            const receivedNonce = messageJson.nonce;
+            const timestamp = messageJson.timestamp;
+
+            if (receivedNonces.has(receivedNonce) || (Date.now() - timestamp) > nonceLifeTime) { // 5分钟
+                console.warn('Message replay detected or timestamp expired');
+                return;
+            }
+
+            receivedNonces.set(receivedNonce, timestamp);
+            console.log(messageJson);
+            const innerMessageJson = JSON.parse(messageJson.message);
+            handleIncomeMessageJsonFields(publicKeyHash, innerMessageJson);
         } catch (e) {
             console.error('Failed to parse JSON message:', e);
         }
@@ -454,14 +572,12 @@ function handleIncomeMessageJsonFields(publicKeyHash, json) {
                 const fingerprint = getShortHash(publicKeyHash);
                 const fingerprintColor = getColorFromSHA256(publicKeyHash);
                 appendImageToChatBox(nickname, fingerprint, json[key], fingerprintColor);
-
             } else {
                 console.warn(`Unknown field: ${key}`);
             }
         }
     }
 }
-
 
 function verifySignature(publicKeyHash, utf8MessageBytes, signature) {
     const publicKey = g_otherPublicKeys[publicKeyHash];
@@ -481,11 +597,25 @@ function verifySignature(publicKeyHash, utf8MessageBytes, signature) {
 
 function generateAndSendAESKey() {
     g_aesKey = forge.random.getBytesSync(32);
+    const nonce = forge.random.getBytesSync(16);
+    const timestamp = Date.now();
+    const messageWithNonceAndTimestamp = JSON.stringify({
+        nonce: forge.util.encode64(nonce),
+        timestamp: timestamp,
+        aesKey: forge.util.encode64(g_aesKey)
+    });
+    console.log(`发送方messageWithNonceAndTimestamp为：${messageWithNonceAndTimestamp}`)
+
+    const md = forge.md.sha256.create();
+    md.update(messageWithNonceAndTimestamp, 'utf8');
+    const signature = g_myPrivateKey.sign(md);
+
+    const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);
+
     for (let hash in g_otherPublicKeys) {
         const publicKey = g_otherPublicKeys[hash];
         const encryptedKey = publicKey.encrypt(g_aesKey, 'RSA-OAEP', {
-            md: forge.md.sha256.create(),
-            mgf1: {
+            md: forge.md.sha256.create(), mgf1: {
                 md: forge.md.sha256.create()
             }
         });
@@ -493,7 +623,11 @@ function generateAndSendAESKey() {
             action: 'send_key',
             channel_id: g_channel_id,
             encrypted_key: forge.util.encode64(encryptedKey),
-            public_key_hash: hash
+            public_key_hash: hash,
+            sender_public_key_hash: myPublicKeyHash,
+            nonce: forge.util.encode64(nonce),
+            timestamp: timestamp,
+            signature: forge.util.encode64(signature)
         }));
     }
 }
@@ -546,13 +680,10 @@ function sendNicknamesToNewMember(newMemberPublicKeyHash) {
     if (g_myNickName !== "匿名") {
         const encryptedMessage = encryptMessage(JSON.stringify({ change_nickname: g_myNickName }));
         g_websocket.send(JSON.stringify({
-            action: 'send_message',
-            channel_id: g_channel_id,
-            encrypted_message: encryptedMessage
+            action: 'send_message', channel_id: g_channel_id, encrypted_message: encryptedMessage
         }));
     }
 }
-
 
 function updateUsersList() {
     const usersList = document.getElementById('users-list');
@@ -594,9 +725,7 @@ function changeNickname(nickname) {
     g_myNickName = nickname;
     const encryptedMessage = encryptMessage(JSON.stringify({ change_nickname: nickname }));
     g_websocket.send(JSON.stringify({
-        action: 'send_message',
-        channel_id: g_channel_id,
-        encrypted_message: encryptedMessage
+        action: 'send_message', channel_id: g_channel_id, encrypted_message: encryptedMessage
     }));
     // 展示昵称变更的消息
     const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);

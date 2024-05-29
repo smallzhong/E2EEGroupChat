@@ -119,9 +119,21 @@ class Server:
         channel_id = data['channel_id']
         encrypted_key = data['encrypted_key']
         public_key_hash = data['public_key_hash']
+        sender_public_key_hash = data['sender_public_key_hash']
+        nonce = data['nonce']
+        timestamp = data['timestamp']
+        signature = data['signature']
         for client in self.channels[channel_id]:
             if client['public_key_hash'] == public_key_hash:
-                await client['websocket'].send(json.dumps({'action': 'receive_key', 'encrypted_key': encrypted_key}))
+                await client['websocket'].send(json.dumps({
+                    'action': 'receive_key',
+                    'encrypted_key': encrypted_key,
+                    'public_key_hash': public_key_hash,
+                    'sender_public_key_hash': sender_public_key_hash,
+                    'nonce': nonce,
+                    'timestamp': timestamp,
+                    'signature': signature
+                }))
 
     async def send_message(self, data, client_info):
         channel_id = data['channel_id']

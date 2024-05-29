@@ -7,13 +7,13 @@
     <title>Secure Chat Room</title>
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/node-forge@1.0.0/dist/forge.min.js"></script>
-    <link rel="stylesheet" href="style.css">
+    <link id="dynamic-stylesheet" rel="stylesheet" href="">
 </head>
 
 <body>
-    <div class="container-fluid vh-100 p-0">
-        <div id="chat-container"
-            class="d-flex flex-column h-100 border rounded shadow-sm bg-white overflow-hidden position-relative">
+    <!-- Main container, this will be toggled -->
+    <div class="container-fluid vh-100 p-0" id="chat-container" style="display:none;">
+        <div class="d-flex flex-column h-100 border rounded shadow-sm bg-white overflow-hidden position-relative">
             <div id="top-bar" class="d-flex justify-content-between p-2 bg-light border-bottom">
                 <div id="channel-info"><span id="current-channel-id"></span></div>
                 <div id="status-message">正在连接...</div>
@@ -31,6 +31,69 @@
                 <div id="image-preview" style="margin-top: 10px;"></div>
             </div>
         </div>
+    </div>
+
+    <!-- Homepage container, this will be toggled -->
+    <div class="container" id="home-container" style="display:none;">
+        <h1>Welcome to E2EEGroupChat</h1>
+        <p>Join or create your own end-to-end encrypted (E2EE) chat channel by modifying the URL after the question
+            mark.</p>
+        <p>For example, to create a channel named <code>your-channel</code>, use: <a id="example-channel-link"
+                href="#">example.com/?your-channel</a></p>
+
+        <div class="channel-list">
+            <h4>Here are some pre-made channels you can join:</h4>
+            <ul>
+                <li><a id="lounge-link" href="#">?lounge</a></li>
+                <li><a id="programming-link" href="#">?programming</a></li>
+                <li><a id="games-link" href="#">?games</a></li>
+            </ul>
+        </div>
+
+        <p>Here's a random channel generated just for you: <a href="#" id="random-channel-link"></a></p>
+
+        <h4>Features:</h4>
+        <ul class="feature-list">
+            <li><strong>End-to-End Encryption:</strong> Uses RSA and AES encryption to ensure that only the sender and
+                receiver can decrypt messages.</li>
+            <li><strong>Forward and Backward Secrecy:</strong> New AES keys are generated when users join or leave a
+                channel, ensuring message privacy.</li>
+            <li><strong>Real-Time Communication:</strong> Low-latency message transmission via WebSocket.</li>
+            <li><strong>Online User List:</strong> Displays current online users in real-time.</li>
+            <li><strong>Simple and User-Friendly Interface:</strong> Responsive design that adapts to various devices.
+            </li>
+            <li><strong>Image Sharing:</strong> Users can share images, which are also protected with end-to-end
+                encryption.</li>
+        </ul>
+
+        <h4>How It Works:</h4>
+        <ol>
+            <li>Open the E2EEGroupChat application and enter the channel ID via the URL, e.g., <code
+                    id="example-channel-code">example.com/?lounge</code>.</li>
+            <li>The application generates an RSA key pair and sends the public key to the server.</li>
+            <li>The server forwards the public keys of other users, and the frontend stores these public keys.</li>
+            <li>Users send messages; the frontend encrypts messages using the AES key, and the server only forwards
+                encrypted messages.</li>
+            <li>When a new user joins or a user leaves, the frontend generates a new AES key and distributes it
+                encrypted to other users.</li>
+            <li>No cookies are used, and closing the window will result in the loss of all chat messages.</li>
+        </ol>
+
+        <h4>Security Mechanisms:</h4>
+        <ul class="feature-list">
+            <li><strong>RSA Encryption:</strong> Used to encrypt AES keys for secure key transmission.</li>
+            <li><strong>AES Encryption:</strong> Used to encrypt message content during transmission.</li>
+            <li><strong>Dynamic Key Updates:</strong> New AES keys are generated when users join or leave a channel.
+            </li>
+        </ul>
+
+        <h4>License:</h4>
+        <p>This project is licensed under the MIT License.</p>
+
+        <h4>Project Information:</h4>
+        <p>This project is open-source and available on GitHub. If you find it useful, please give it a star!</p>
+        <p>GitHub Repository: <a href="https://github.com/smallzhong/E2EEGroupChat"
+                target="_blank">https://github.com/smallzhong/E2EEGroupChat</a></p>
     </div>
 
     <!-- Users Modal -->
