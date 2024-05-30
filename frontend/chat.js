@@ -4,16 +4,20 @@ const nonceCleanUpInterval = 60000; // 每隔1分钟清理一次nonce
 let g_websocket = null;
 let g_myPrivateKey = null;
 let g_myPublicKey = null;
-let g_aesKey = null;
+let g_effective_aes_key = null; // 这个是真正用来做加解密的真实aes密钥
+let g_exchange_aes_key = null; // 这个是交换的时候用的aes密钥。
 let g_otherPublicKeys = {};
 let g_userNicknames = {}; // 保存用户的昵称
-let g_channel_id = null;
+let g_hashed_channel_id = null;
+let g_real_channel_id = null;
 let g_reconnectInterval = 5000;  // 重连间隔时间，5秒
 let g_unreadMessages = 0;
 let g_isPageFocused = true;
 let g_myNickName = "匿名";
 let g_pendingNewMembers = []; // 存储待处理的新成员公钥哈希
 let receivedNonces = new Map(); // 存储nonce和时间戳
+let g_salt1 = "https://github.com/smallzhong/E2EEGroupChat";
+let g_salt2 = "smallzhong";
 
 
 document.getElementById('upload-image-button').addEventListener('click', function () {
@@ -46,7 +50,7 @@ document.getElementById('image-input').addEventListener('change', function (even
 function innerSendImageBase64(base64Image) {
     const encryptedMessage = encryptMessage(JSON.stringify({ base64Image: base64Image, change_nickname: g_myNickName }));
     g_websocket.send(JSON.stringify({
-        action: 'send_message', channel_id: g_channel_id, encrypted_message: encryptedMessage
+        action: 'send_message', channel_id: g_hashed_channel_id, encrypted_message: encryptedMessage
     }));
     // 展示自己的消息
     const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);
@@ -59,16 +63,16 @@ function innerSendImageBase64(base64Image) {
 function innerSendMessage(message) {
     const encryptedMessage = encryptMessage(JSON.stringify({ message: message, change_nickname: g_myNickName }));
     g_websocket.send(JSON.stringify({
-        action: 'send_message', channel_id: g_channel_id, encrypted_message: encryptedMessage
+        action: 'send_message', channel_id: g_hashed_channel_id, encrypted_message: encryptedMessage
     }));
 }
 
 function updatePageTitle() {
-    if (g_channel_id) {
+    if (g_hashed_channel_id) {
         if (g_unreadMessages > 0) {
-            document.title = `(${g_unreadMessages}) ?${g_channel_id}`;
+            document.title = `(${g_unreadMessages}) ?${g_real_channel_id}`;
         } else {
-            document.title = g_channel_id;
+            document.title = `${g_real_channel_id}`;
         }
     }
 }
@@ -221,49 +225,79 @@ function generateRandomChannel() {
     return randomChannel;
 }
 
-document.addEventListener('DOMContentLoaded', function () {
-    const queryString = window.location.search.substring(1); // 去掉前面的 '?'
-    const channelId = queryString ? queryString : null; // 如果有查询参数，则取其值，否则返回 null
-    console.log("channelid = " + channelId);
+function generateHMACBytes(original, salt) {
+    const hmac = forge.hmac.create();
+    hmac.start('sha256', salt);
+    hmac.update(original);
+    const hmacResult = hmac.digest().bytes();
+    console.log(`generateHMACBytes original=${original} salt=${salt} hmacResult=${forge.util.encode64(hmacResult)}`);
+    return hmacResult;
+}
 
-    const dynamicStylesheet = document.getElementById('dynamic-stylesheet');
+function generateHMACString(original, salt) {
+    return forge.util.bytesToHex(generateHMACBytes(original, salt));
+}
 
-    if (channelId) {
-        dynamicStylesheet.href = 'style_chat-container.css'; // 加载聊天窗口的CSS文件
-        document.getElementById('status-message').innerText = '正在生成 RSA 密钥...';
-        g_myPrivateKey = forge.pki.rsa.generateKeyPair(2048).privateKey;
-        g_myPublicKey = forge.pki.rsa.setPublicKey(g_myPrivateKey.n, g_myPrivateKey.e);
-        g_channel_id = channelId;
-        updatePageTitle();
-        connectWebSocket();
-        // 隐藏主页，显示聊天容器
-        document.getElementById('home-container').style.display = 'none';
-        document.getElementById('chat-container').style.display = 'block';
-    } else {
-        // 先把当前的网址链接填进去
-        const currentUrl = window.location.origin;
-        // Update example links
-        document.getElementById('example-channel-link').href = `${currentUrl}/?your-channel`;
-        document.getElementById('example-channel-link').textContent = `${currentUrl}/?your-channel`;
-        document.getElementById('lounge-link').href = `${currentUrl}/?lounge`;
-        document.getElementById('programming-link').href = `${currentUrl}/?programming`;
-        document.getElementById('games-link').href = `${currentUrl}/?games`;
-        document.getElementById('example-channel-code').textContent = `${currentUrl}/?lounge`;
-        // 生成随机频道链接
-        const randomChannelLink = document.getElementById('random-channel-link');
-        const randomChannelName = generateRandomChannel();
-        randomChannelLink.href = `${currentUrl}/?${randomChannelName}`;
-        randomChannelLink.textContent = `?${randomChannelName}`;
+function getHashedChannelId(real_channel_id) {
+    return generateHMACString(real_channel_id, g_salt1);
+}
 
-        dynamicStylesheet.href = 'style_home-container.css';
-        // 显示主页，隐藏聊天容器
-        document.getElementById('home-container').style.display = 'block';
-        document.getElementById('chat-container').style.display = 'none';
-
-
+function getEffectiveAesKey(exchange_aes_key, hmacBytes) {
+    if (exchange_aes_key.length !== hmacBytes.length) {
+        throw new Error('Both inputs must be of the same length');
     }
 
+    let xorResult = '';
+    for (let i = 0; i < exchange_aes_key.length; i++) {
+        // XOR the byte values and convert them back to a byte string
+        xorResult += String.fromCharCode(exchange_aes_key.charCodeAt(i) ^ hmacBytes.charCodeAt(i));
+    }
 
+    console.log(`getEffectiveAesKey结果${forge.util.encode64(xorResult)}`);
+    return xorResult;
+}
+
+function joinChannelProcess(channelName) {
+    g_real_channel_id = channelName;
+    g_hashed_channel_id = getHashedChannelId(channelName);
+
+    // 这里开始设置界面和初始化密钥等
+    document.getElementById('dynamic-stylesheet').href = 'style_chat-container.css';
+    document.getElementById('status-message').innerText = '正在生成 RSA 密钥...';
+    g_myPrivateKey = forge.pki.rsa.generateKeyPair(2048).privateKey;
+    g_myPublicKey = forge.pki.rsa.setPublicKey(g_myPrivateKey.n, g_myPrivateKey.e);
+    updatePageTitle();
+    connectWebSocket();
+
+    // 切换显示内容
+    document.getElementById('home-container').style.display = 'none';
+    document.getElementById('chat-container').style.display = 'block';
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const channelInput = document.getElementById('channel-name-input');
+    const randomChannelName = generateRandomChannel();
+    channelInput.value = randomChannelName;  // 填充随机频道名称
+
+    channelInput.addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {  // 检测回车键
+            e.preventDefault();  // 阻止默认行为
+            joinChannelProcess(channelInput.value.trim());  // 加入频道
+        }
+    });
+
+    document.getElementById('join-channel-button').addEventListener('click', function () {
+        const channelName = document.getElementById('channel-name-input').value.trim();
+        if (channelName) {
+            joinChannelProcess(channelName);
+        } else {
+            alert("Please enter a channel name.");
+        }
+    });
+
+    // 显示主页，隐藏聊天容器
+    // document.getElementById('home-container').style.display = 'block';
+    // document.getElementById('chat-container').style.display = 'none';
 
     document.getElementById('send-message-button').addEventListener('click', function () {
         sendMessage();
@@ -317,7 +351,7 @@ function connectWebSocket() {
     g_websocket = new WebSocket(g_uri);
     g_websocket.onopen = function () {
         console.log("WebSocket 已连接");
-        joinChannel(g_channel_id);
+        joinChannel(g_hashed_channel_id);
     };
     g_websocket.onmessage = function (event) {
         handleIncomingMessage(event.data);
@@ -346,12 +380,17 @@ function appendMyFingerprintToChatBox() {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-function joinChannel(channelId) {
+function joinChannel(hashedChannelId) {
     const publicKeyPem = forge.pki.publicKeyToPem(g_myPublicKey);
     g_websocket.send(JSON.stringify({
         action: 'join',
-        channel_id: channelId,
-        public_key: publicKeyPem
+        channel_id: hashedChannelId,
+        public_key: publicKeyPem,
+
+        // 这里加一个字段，hmac(channel_id, 自己公钥签名)。
+        // 接收的时候如果这个值不对，说明这个人不知道channel_id的真实值。
+        //服务器能知道别人用的这个签名，但是那是别人的公钥，自己的公钥的签名无从得知，那signature字段就是非法的，还是过不去校验。
+        channel_id_signature: generateHMACString(g_real_channel_id, getPublicKeyHash(g_myPublicKey)),
     }));
     document.getElementById('status-message').innerText = '加入成功';
     document.getElementById('input-message').disabled = false; // 启用消息输入框
@@ -375,7 +414,7 @@ function sendMessage() {
 }
 
 function encryptMessage(message) {
-    if (!g_aesKey) {
+    if (!g_effective_aes_key) {
         console.error('AES key not set');
         return '';
     }
@@ -387,7 +426,7 @@ function encryptMessage(message) {
         message: message
     });
 
-    const cipher = forge.cipher.createCipher('AES-CTR', g_aesKey);
+    const cipher = forge.cipher.createCipher('AES-CTR', g_effective_aes_key);
     const iv = forge.random.getBytesSync(16);
     cipher.start({ iv: iv });
 
@@ -429,12 +468,24 @@ function handleIncomingMessage(data) {
         case 'receive_public_key':
             console.log(data);
             const publicKey = forge.pki.publicKeyFromPem(messageData.public_key);
-            if (!g_otherPublicKeys.hasOwnProperty(messageData.public_key_hash)) {
-                g_otherPublicKeys[messageData.public_key_hash] = publicKey;
-                handleNewMemberJoin(messageData.public_key_hash);
-                if (!g_isPageFocused) {
-                    g_unreadMessages++;
-                    updatePageTitle();
+            const channelIdSignature = messageData.channel_id_signature;
+            // 这里注意不能用messageData.public_key_hash，因为这个是服务器控制的，服务器可以恶意伪造，如果直接信任了服务器的hash，会导致被攻破
+            console.log(`channelIdSignature=${channelIdSignature}`);
+            console.log(`generateHMACString(g_real_channel_id, getPublicKeyHash(publicKey))=${generateHMACString(g_real_channel_id, getPublicKeyHash(publicKey))}`);
+            console.log(`getPublicKeyHash(publicKey)=${getPublicKeyHash(publicKey)}`);
+            console.log(`messageData.public_key_hash=${messageData.public_key_hash}`);
+            if (channelIdSignature !== generateHMACString(g_real_channel_id, getPublicKeyHash(publicKey))) {
+                // 不合法，不能让他进入我的公钥列表，也不能让用户看到消息以为这个人进来了。
+                console.warn(`channelIdSignature !== generateHMACString(g_real_channel_id, getPublicKeyHash(publicKey)) 这个人的公钥不合法！拒绝接受这个人的公钥！`);
+            }
+            else {
+                if (!g_otherPublicKeys.hasOwnProperty(messageData.public_key_hash)) {
+                    g_otherPublicKeys[messageData.public_key_hash] = publicKey;
+                    handleNewMemberJoin(messageData.public_key_hash);
+                    if (!g_isPageFocused) {
+                        g_unreadMessages++;
+                        updatePageTitle();
+                    }
                 }
             }
             break;
@@ -465,6 +516,7 @@ function handleReceiveKey(data) {
     const encryptedKey = data.encrypted_key;
     const signature = data.signature;
     const senderPublicKeyHash = data.sender_public_key_hash;
+    const channelIdSignature = data.channel_id_signature;
 
     // 检查时间戳是否过期
     if ((Date.now() - timestamp) > nonceLifeTime) {
@@ -507,8 +559,16 @@ function handleReceiveKey(data) {
         return;
     }
 
+    // 验证channel_id_signature签名是否正确
+    if (channelIdSignature !== generateHMACString(g_real_channel_id, senderPublicKeyHash)) {
+        console.error('channel_id_signature verification failed');
+        return;
+    }
+
     // 检验通过了，可以放到g_aesKey。前面检验有一个不通过都不行。
-    g_aesKey = t_aesKey;
+
+    g_effective_aes_key = getEffectiveAesKey(t_aesKey, generateHMACBytes(g_real_channel_id, g_salt2));
+    console.log(`g_effective_aes_key = ${forge.util.encode64(g_effective_aes_key)}`);
 
     // 处理所有待处理的新成员
     sendNicknamesToNewMembers();
@@ -524,7 +584,7 @@ function handleIncomeMessage(encryptedMessage, publicKeyHash) {
     const iv = forge.util.decode64(messageData.nonce);
     const ciphertext = forge.util.decode64(messageData.ciphertext);
     const signature = messageData.signature;
-    const decipher = forge.cipher.createDecipher('AES-CTR', g_aesKey);
+    const decipher = forge.cipher.createDecipher('AES-CTR', g_effective_aes_key);
     decipher.start({ iv: iv });
     decipher.update(forge.util.createBuffer(ciphertext));
     if (!decipher.finish()) {
@@ -596,13 +656,14 @@ function verifySignature(publicKeyHash, utf8MessageBytes, signature) {
 }
 
 function generateAndSendAESKey() {
-    g_aesKey = forge.random.getBytesSync(32);
+    g_exchange_aes_key = forge.random.getBytesSync(32);
+    g_effective_aes_key = getEffectiveAesKey(g_exchange_aes_key, generateHMACBytes(g_real_channel_id, g_salt2));
     const nonce = forge.random.getBytesSync(16);
     const timestamp = Date.now();
     const messageWithNonceAndTimestamp = JSON.stringify({
         nonce: forge.util.encode64(nonce),
         timestamp: timestamp,
-        aesKey: forge.util.encode64(g_aesKey)
+        aesKey: forge.util.encode64(g_exchange_aes_key)
     });
     console.log(`发送方messageWithNonceAndTimestamp为：${messageWithNonceAndTimestamp}`)
 
@@ -614,25 +675,34 @@ function generateAndSendAESKey() {
 
     for (let hash in g_otherPublicKeys) {
         const publicKey = g_otherPublicKeys[hash];
-        const encryptedKey = publicKey.encrypt(g_aesKey, 'RSA-OAEP', {
+        const encryptedKey = publicKey.encrypt(g_exchange_aes_key, 'RSA-OAEP', {
             md: forge.md.sha256.create(), mgf1: {
                 md: forge.md.sha256.create()
             }
         });
         g_websocket.send(JSON.stringify({
             action: 'send_key',
-            channel_id: g_channel_id,
+            channel_id: g_hashed_channel_id,
             encrypted_key: forge.util.encode64(encryptedKey),
             public_key_hash: hash,
             sender_public_key_hash: myPublicKeyHash,
             nonce: forge.util.encode64(nonce),
             timestamp: timestamp,
-            signature: forge.util.encode64(signature)
+            signature: forge.util.encode64(signature),
+
+            // 这里加一个字段，hmac(channel_id, 自己公钥签名)。
+            // 接收的时候如果这个值不对，说明这个人不知道channel_id的真实值。
+            // 服务器能知道别人用的这个签名，但是那是别人的公钥，自己的公钥的签名无从得知，那signature字段就是非法的，还是过不去校验。
+            channel_id_signature: generateHMACString(g_real_channel_id, getPublicKeyHash(g_myPublicKey)),
         }));
     }
 }
 
 function handleMemberLeft(publicKeyHash) {
+    if (!g_otherPublicKeys.hasOwnProperty(publicKeyHash)) {
+        console.warn(`这个人${publicKeyHash}没在列表里面，不打印他的退出信息，以免给用户带来混淆。这可能是一次攻击。`);
+        return;
+    }
     delete g_otherPublicKeys[publicKeyHash];
     updateUsersList();
     const chatBox = document.getElementById('chat-box');
@@ -680,7 +750,7 @@ function sendNicknamesToNewMember(newMemberPublicKeyHash) {
     if (g_myNickName !== "匿名") {
         const encryptedMessage = encryptMessage(JSON.stringify({ change_nickname: g_myNickName }));
         g_websocket.send(JSON.stringify({
-            action: 'send_message', channel_id: g_channel_id, encrypted_message: encryptedMessage
+            action: 'send_message', channel_id: g_hashed_channel_id, encrypted_message: encryptedMessage
         }));
     }
 }
@@ -718,14 +788,14 @@ function updateUsersList() {
     }
 
     const statusMessage = document.getElementById('status-message');
-    statusMessage.innerText = `当前频道：${g_channel_id}（在线用户: ${totalUsers}）`;
+    statusMessage.innerText = `当前频道：${g_real_channel_id}（在线用户: ${totalUsers}）`;
 }
 
 function changeNickname(nickname) {
     g_myNickName = nickname;
     const encryptedMessage = encryptMessage(JSON.stringify({ change_nickname: nickname }));
     g_websocket.send(JSON.stringify({
-        action: 'send_message', channel_id: g_channel_id, encrypted_message: encryptedMessage
+        action: 'send_message', channel_id: g_hashed_channel_id, encrypted_message: encryptedMessage
     }));
     // 展示昵称变更的消息
     const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);

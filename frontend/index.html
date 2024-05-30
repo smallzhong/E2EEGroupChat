@@ -7,7 +7,7 @@
     <title>Secure Chat Room</title>
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/node-forge@1.0.0/dist/forge.min.js"></script>
-    <link id="dynamic-stylesheet" rel="stylesheet" href="">
+    <link id="dynamic-stylesheet" rel="stylesheet" href="style_home-container.css">
 </head>
 
 <body>
@@ -34,23 +34,24 @@
     </div>
 
     <!-- Homepage container, this will be toggled -->
-    <div class="container" id="home-container" style="display:none;">
+    <div class="container" id="home-container">
         <h1>Welcome to E2EEGroupChat</h1>
-        <p>Join or create your own end-to-end encrypted (E2EE) chat channel by modifying the URL after the question
-            mark.</p>
-        <p>For example, to create a channel named <code>your-channel</code>, use: <a id="example-channel-link"
-                href="#">example.com/?your-channel</a></p>
+        <p>Join or create your own end-to-end encrypted (E2EE) chat channel by entering a channel name below.</p>
+        <p>Here's a random channel generated just for you:</p>
 
-        <div class="channel-list">
-            <h4>Here are some pre-made channels you can join:</h4>
-            <ul>
-                <li><a id="lounge-link" href="#">?lounge</a></li>
-                <li><a id="programming-link" href="#">?programming</a></li>
-                <li><a id="games-link" href="#">?games</a></li>
-            </ul>
+        <div>
+            <input type="text" id="channel-name-input" placeholder="Enter channel name here..." class="form-control" />
+            <button id="join-channel-button" class="btn btn-primary mt-2">Join Channel</button>
         </div>
 
-        <p>Here's a random channel generated just for you: <a href="#" id="random-channel-link"></a></p>
+        <h4>Here are some pre-made channels you can join:</h4>
+        <button onclick="joinChannelProcess('lounge')" class="btn btn-primary">lounge</button>
+        <button onclick="joinChannelProcess('programming')" class="btn btn-primary">programming</button>
+        <button onclick="joinChannelProcess('games')" class="btn btn-primary">games</button>
+
+        <!-- <p>Here's a random channel generated just for you:</p>
+        <span id="random-channel-id-display">Generating...</span>
+        <button id="join-random-channel-button" class="btn btn-link">Join Random Channel</button> -->
 
         <h4>Features:</h4>
         <ul class="feature-list">

@@ -75,7 +75,7 @@ class Server:
             LOG(f'self.handle_client_disconnect(client_info)')
             self.handle_client_disconnect(client_info)
 
-    async def send_public_keys(self, channel_id):
+    async def send_public_keys(self, channel_id, channel_id_signature):
         clients = self.channels[channel_id]
         for client in clients:
             other_clients = [c for c in clients if c != client]
@@ -87,7 +87,12 @@ class Server:
                 await client['websocket'].send(json.dumps({
                     'action': 'receive_public_key',
                     'public_key': other_public_key,
-                    'public_key_hash': other_client['public_key_hash']
+                    'public_key_hash': other_client.get('public_key_hash'),
+                    # 这里加一个字段，hmac(channel_id, 自己公钥签名)。
+                    # 接收的时候如果这个值不对，说明这个人不知道channel_id的真实值。
+                    # 服务器能知道别人用的这个签名，但是那是别人的公钥，自己的公钥的签名无从得知，那signature字段就是非法的，还是过不去校验。
+                    # 这里要从全局列表取。
+                    'channel_id_signature': other_client.get('channel_id_signature'),
                 }))
         # 让新加入这个人生成密钥
         # TODO:随机选一个人生成密钥
@@ -104,16 +109,18 @@ class Server:
         self.print_channels()
 
         channel_id = data['channel_id']
+        channel_id_signature = data.get('channel_id_signature', None)
         public_key = serialization.load_pem_public_key(data['public_key'].encode())
         public_key_hash = self.hash_public_key(public_key)
         client_info['public_key'] = public_key
         client_info['public_key_hash'] = public_key_hash
+        client_info['channel_id_signature'] = channel_id_signature
         LOG_VERBOSE(f'当前用户{public_key_hash}想加入{channel_id}。')
         if channel_id not in self.channels:
             self.channels[channel_id] = [client_info]
         else:
             self.channels[channel_id].append(client_info)
-            asyncio.ensure_future(self.send_public_keys(channel_id))
+            asyncio.ensure_future(self.send_public_keys(channel_id, channel_id_signature))
 
     async def send_key(self, data, client_info):
         channel_id = data['channel_id']
@@ -123,6 +130,7 @@ class Server:
         nonce = data['nonce']
         timestamp = data['timestamp']
         signature = data['signature']
+        channel_id_signature = data.get('channel_id_signature', None)  # 没有就是None
         for client in self.channels[channel_id]:
             if client['public_key_hash'] == public_key_hash:
                 await client['websocket'].send(json.dumps({
@@ -132,7 +140,12 @@ class Server:
                     'sender_public_key_hash': sender_public_key_hash,
                     'nonce': nonce,
                     'timestamp': timestamp,
-                    'signature': signature
+                    'signature': signature,
+
+                    # 这里加一个字段，hmac(channel_id, 自己公钥签名)。
+                    # 接收的时候如果这个值不对，说明这个人不知道channel_id的真实值。
+                    # 服务器能知道别人用的这个签名，但是那是别人的公钥，自己的公钥的签名无从得知，那signature字段就是非法的，还是过不去校验。
+                    'channel_id_signature': channel_id_signature,
                 }))
 
     async def send_message(self, data, client_info):
@@ -171,7 +184,7 @@ ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 ssl_context.load_cert_chain('chat.yuchu.space.pem', 'chat.yuchu.space.key')
 
 server = Server()
-start_server = websockets.serve(server.handler, "0.0.0.0", 8765, ssl=ssl_context, max_size=1024 * 1024 * 100) # 10MB
+start_server = websockets.serve(server.handler, "0.0.0.0", 8765, ssl=ssl_context, max_size=1024 * 1024 * 100)  # 10MB
 
 asyncio.get_event_loop().run_until_complete(start_server)
 asyncio.get_event_loop().run_forever()
