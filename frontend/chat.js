@@ -285,7 +285,7 @@ window.addEventListener('hashchange', handleHashChange);
 function handleHashChange() {
     const hash = window.location.hash;
     if (hash === '#chat' && g_hashed_channel_id) {
-        initializeChatInterface();
+        // initializeChatInterface();
     } else {
         // 显示主页
         window.location.hash = "";
