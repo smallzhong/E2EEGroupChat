@@ -17,38 +17,41 @@
             participant Frontend as Frontend Application
             participant Server as WebSocket Server
 
-            User ->> Frontend: Open chat page (URL contains channel ID)
-            Frontend ->> Frontend: Retrieve channel ID from URL
-            Frontend ->> Frontend: Generate RSA key pair
-            Frontend ->> Server: Connect to WebSocket server
-            Server ->> Frontend: Confirm connection
-            Frontend ->> Server: Send join channel request (public key and channel ID)
-            Server ->> Server: Process join channel request
-            Server ->> Server: Generate public key hash and store
-            Server ->> Server: Update channel user list
-            Server ->> Frontend: Return public keys of other users in the channel
-            Frontend ->> Frontend: Store public keys of other users
-            Frontend ->> Frontend: Generate AES key
-            Frontend ->> Server: Encrypt AES key and send to other users
-            Server ->> Frontend: Forward encrypted AES key to other users
-            Frontend ->> Frontend: Decrypt received AES key and store
-            User ->> Frontend: Input message and send
-            Frontend ->> Frontend: Encrypt message with AES key
-            Frontend ->> Server: Send encrypted message
-            Server ->> Server: Forward encrypted message
-            Server ->> Frontend: Broadcast encrypted message to other users
-            Frontend ->> Frontend: Decrypt and display message
-            Server ->> Frontend: Send heartbeat
-            Frontend ->> Server: Return heartbeat
-            User ->> Frontend: Disconnect or close page
-            Frontend ->> Server: Disconnect notification
-            Server ->> Server: Handle user departure
-            Server ->> Frontend: Notify other users that the user has left
-            Frontend ->> Frontend: Update user list
-            Frontend ->> Frontend: Randomly select a user in the channel to generate a new AES key
-            Frontend ->> Server: Encrypt new AES key and send to other users
-            Server ->> Frontend: Forward encrypted new AES key to other users
-            Frontend ->> Frontend: Decrypt received new AES key and store
+            User ->> Frontend: Opens chat page (https://chat.yuchu.space/)
+            Frontend ->> Frontend: Display randomly generated channel name or select a preset channel
+            User ->> Frontend: Selects channel
+            Frontend ->> Frontend: Generates RSA key pair
+            Frontend ->> Frontend: Calculates HMAC of channel name
+            Frontend ->> Server: Connects to WebSocket server
+            Server ->> Frontend: Confirms connection
+            Frontend ->> Server: Sends join channel request (public key, channel ID HMAC, public key signature)
+            Server ->> Server: Validates public key signature
+            Server ->> Server: Generates public key hash and stores it
+            Server ->> Server: Updates channel user list
+            Server ->> Frontend: Returns other users' public keys and signatures in the channel
+            Frontend ->> Frontend: Validates other users' public key signatures
+            Frontend ->> Frontend: Stores other users' public keys
+            Frontend ->> Frontend: Generates AES key
+            Frontend ->> Server: Encrypts AES key and sends it to other users
+            Server ->> Frontend: Forwards encrypted AES key to other users
+            Frontend ->> Frontend: Decrypts received AES key and stores it
+            User ->> Frontend: Enters message and sends
+            Frontend ->> Frontend: Encrypts message using AES key
+            Frontend ->> Server: Sends encrypted message
+            Server ->> Server: Forwards encrypted message
+            Server ->> Frontend: Broadcasts encrypted message to other users
+            Frontend ->> Frontend: Decrypts and displays message
+            Server ->> Frontend: Sends heartbeat
+            Frontend ->> Server: Returns heartbeat
+            User ->> Frontend: Disconnects or closes page
+            Frontend ->> Server: Sends disconnect notification
+            Server ->> Server: Handles user leaving
+            Server ->> Frontend: Notifies other users that the user has left
+            Frontend ->> Frontend: Updates user list
+            Frontend ->> Frontend: Randomly prompts a user in the channel to generate a new AES key
+            Frontend ->> Server: Encrypts new AES key and sends it to other users
+            Server ->> Frontend: Forwards encrypted new AES key to other users
+            Frontend ->> Frontend: Decrypts received new AES key and stores it
     </div>
 </body>
 </html>
