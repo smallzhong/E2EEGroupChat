@@ -75,7 +75,7 @@ class Server:
             LOG(f'self.handle_client_disconnect(client_info)')
             self.handle_client_disconnect(client_info)
 
-    async def send_public_keys(self, channel_id, channel_id_signature):
+    async def send_public_keys(self, channel_id):
         clients = self.channels[channel_id]
         for client in clients:
             other_clients = [c for c in clients if c != client]
@@ -120,7 +120,7 @@ class Server:
             self.channels[channel_id] = [client_info]
         else:
             self.channels[channel_id].append(client_info)
-            asyncio.ensure_future(self.send_public_keys(channel_id, channel_id_signature))
+            asyncio.ensure_future(self.send_public_keys(channel_id))
 
     async def send_key(self, data, client_info):
         channel_id = data['channel_id']
