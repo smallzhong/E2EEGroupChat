@@ -280,7 +280,7 @@ function initializeChatInterface() {
 }
 
 window.addEventListener('hashchange', handleHashChange);
-window.addEventListener('load', handleHashChange);
+// window.addEventListener('load', handleHashChange);
 
 function handleHashChange() {
     const hash = window.location.hash;
@@ -500,7 +500,7 @@ function handleIncomingMessage(data) {
                 console.warn(`channelIdSignature !== generateHMACString(g_real_channel_id, getPublicKeyHash(publicKey)) 这个人的公钥不合法！拒绝接受这个人的公钥！`);
             }
             else {
-                if (!g_otherPublicKeys.hasOwnProperty(messageData.public_key_hash)) {
+                if (messageData.public_key_hash !== getPublicKeyHash(g_myPublicKey) && !g_otherPublicKeys.hasOwnProperty(messageData.public_key_hash)) {
                     g_otherPublicKeys[messageData.public_key_hash] = publicKey;
                     handleNewMemberJoin(messageData.public_key_hash);
                     if (!g_isPageFocused) {
@@ -539,6 +539,11 @@ function handleReceiveKey(data) {
     const senderPublicKeyHash = data.sender_public_key_hash;
     const channelIdSignature = data.channel_id_signature;
 
+    if (senderPublicKeyHash === getPublicKeyHash(g_myPublicKey)) {
+        console.warn(`senderPublicKeyHash === getPublicKeyHash(g_myPublicKey)`);
+        return;
+    }
+
     // 检查时间戳是否过期
     if ((Date.now() - timestamp) > nonceLifeTime) {
         console.warn('Received key timestamp expired');
@@ -550,7 +555,6 @@ function handleReceiveKey(data) {
         console.warn('Replay attack detected');
         return;
     }
-
     receivedNonces.set(nonce, timestamp);
 
     // 验证签名
