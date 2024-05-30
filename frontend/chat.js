@@ -258,10 +258,15 @@ function getEffectiveAesKey(exchange_aes_key, hmacBytes) {
 }
 
 function joinChannelProcess(channelName) {
+    // 设置 URL 的哈希部分
+    window.location.hash = 'chat';
+
     g_real_channel_id = channelName;
     g_hashed_channel_id = getHashedChannelId(channelName);
+    initializeChatInterface(); // 用来设置界面和初始化密钥等
+}
 
-    // 这里开始设置界面和初始化密钥等
+function initializeChatInterface() {
     document.getElementById('dynamic-stylesheet').href = 'style_chat-container.css';
     document.getElementById('status-message').innerText = '正在生成 RSA 密钥...';
     g_myPrivateKey = forge.pki.rsa.generateKeyPair(2048).privateKey;
@@ -272,6 +277,22 @@ function joinChannelProcess(channelName) {
     // 切换显示内容
     document.getElementById('home-container').style.display = 'none';
     document.getElementById('chat-container').style.display = 'block';
+}
+
+window.addEventListener('hashchange', handleHashChange);
+window.addEventListener('load', handleHashChange);
+
+function handleHashChange() {
+    const hash = window.location.hash;
+    if (hash === '#chat' && g_hashed_channel_id) {
+        initializeChatInterface();
+    } else {
+        // 显示主页
+        window.location.hash = "";
+        document.getElementById('dynamic-stylesheet').href = 'style_home-container.css';
+        document.getElementById('home-container').style.display = 'block';
+        document.getElementById('chat-container').style.display = 'none';
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function () {
