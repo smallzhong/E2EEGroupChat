@@ -287,6 +287,11 @@ function handleHashChange() {
     if (hash === '#chat' && g_hashed_channel_id) {
         // initializeChatInterface();
     } else {
+        if (g_websocket && g_websocket.readyState !== WebSocket.CLOSED) {
+            console.log('hash改变了，而当前websocket还是connect状态，给close掉。');
+            g_websocket.onclose = null;
+            g_websocket.close();
+        }
         // 显示主页
         window.location.hash = "";
         document.getElementById('dynamic-stylesheet').href = 'style_home-container.css';
@@ -369,6 +374,11 @@ function cleanExpiredNonces() {
 }
 
 function connectWebSocket() {
+    if (g_websocket && g_websocket.readyState !== WebSocket.CLOSED) {
+        console.log('当前websocket还是connect状态，给close掉。');
+        g_websocket.onclose = null;
+        g_websocket.close();
+    }
     g_websocket = new WebSocket(g_uri);
     g_websocket.onopen = function () {
         console.log("WebSocket 已连接");
