@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/node-forge@1.0.0/dist/forge.min.js"></script>
     <link id="dynamic-stylesheet" rel="stylesheet" href="style_home-container.css">
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
 </head>
 
 <body>
@@ -21,13 +22,17 @@
                     data-target="#usersModal">在线用户</button>
                 <button id="set-nickname-button" class="btn btn-secondary btn-sm" data-toggle="modal"
                     data-target="#nicknameModal">设置昵称</button>
+                <button id="view-rsa-keys-button" class="btn btn-info btn-sm" onclick="displayRSAModal()">查看 RSA
+                    密钥</button>
             </div>
             <div id="chat-box" class="flex-grow-1 p-2 overflow-auto"></div>
             <div id="input-container" class="border-top p-2 bg-light">
                 <textarea id="input-message" class="form-control" placeholder="Enter message..." disabled></textarea>
                 <button id="upload-image-button" class="btn btn-secondary btn-sm">上传图片</button>
+                <button id="upload-file-button" class="btn btn-secondary btn-sm">上传文件</button>
                 <button id="send-message-button" class="btn btn-primary btn-sm">发送</button>
                 <input type="file" id="image-input" style="display: none;" accept="image/*">
+                <input type="file" id="file-input" style="display: none;">
                 <div id="image-preview" style="margin-top: 10px;"></div>
             </div>
         </div>
@@ -133,6 +138,30 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
                     <button type="button" class="btn btn-primary" id="save-nickname-button">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RSA Keys Modal -->
+    <div class="modal fade" id="rsaKeysModal" tabindex="-1" aria-labelledby="rsaKeysModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="rsaKeysModalLabel">查看/保存 RSA 密钥</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <textarea id="rsa-key-display" class="form-control" rows="8" readonly></textarea>
+                    <textarea id="rsa-key-input" class="form-control mt-2" rows="8"
+                        placeholder="粘贴您的私钥以加载..."></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+                    <button type="button" class="btn btn-primary" onclick="copyToClipboard()">复制密钥</button>
+                    <button type="button" class="btn btn-success" onclick="loadPrivateKey()">加载密钥</button>
                 </div>
             </div>
         </div>
