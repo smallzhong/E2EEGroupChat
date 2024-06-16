@@ -2,11 +2,11 @@
 
 [中文README](README_CN.MD) 
 
-E2EEGroupChat is a real-time end-to-end encrypted (E2EE) group chat application based on WebSocket. Using RSA and AES encryption technologies, it ensures that messages are not exposed to the server or any third parties during transmission. **The design philosophy of this application considers the server as a potentially malicious middleman**. Therefore, the server does not store any plaintext or keys; it only forwards encrypted messages. Even if the server is compromised and becomes a malicious middleman, the attackers cannot eavesdrop on any user messages. **For detailed encryption process, see the swim lane diagram: https://chat.yuchu.space/swim-lane-en.html**.
+E2EEGroupChat is a real-time end-to-end encrypted (E2EE) group chat application based on WebSocket. Using RSA and AES encryption technologies, it ensures that messages are not exposed to the server or any third parties during transmission. **The design philosophy of this application considers the server as a potentially malicious middleman**. Therefore, the server does not store any plaintext or keys; it only forwards encrypted messages. Even if the server is compromised and becomes a malicious middleman, the attackers cannot eavesdrop on any user messages. **For detailed encryption process, see the swim lane diagram: https://chat.0f31.com/swim-lane-en.html**.
 
 ## Project Preview
 
-You can try it out at https://chat.yuchu.space/.
+You can try it out at https://chat.0f31.com/.
 
 ## Features
 
@@ -24,7 +24,7 @@ You can try it out at https://chat.yuchu.space/.
 
 ## Usage Instructions
 
-1. Open https://chat.yuchu.space/ and follow the prompts to join a channel. You can choose to join a channel with a random name of your own, or join preset channels like `lounge` for chatting. The channel name is encrypted for the server, and the server can only see a hash of the channel. Even if the server is compromised by attackers, they cannot know or join the user's channel.
+1. Open https://chat.0f31.com/ and follow the prompts to join a channel. You can choose to join a channel with a random name of your own, or join preset channels like `lounge` for chatting. The channel name is encrypted for the server, and the server can only see a hash of the channel. Even if the server is compromised by attackers, they cannot know or join the user's channel.
 2. Upon successful connection, the application will generate an RSA key pair and send the public key to the server.
 3. The server will forward the public keys of other users, and the frontend will store these public keys.
 4. Users enter messages and send them; the frontend encrypts messages using the AES key, and the server only forwards encrypted messages.

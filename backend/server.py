@@ -21,10 +21,10 @@ def LOG(msg):
 
 def LOG_VERBOSE(msg):
     msg = "[v]:" + msg
-    print(msg)
+    # print(msg)
 
 
-HEARTBEAT_INTERVAL = 3  # seconds
+HEARTBEAT_INTERVAL = 25  # seconds
 
 
 class Server:
@@ -36,8 +36,25 @@ class Server:
         der = public_key.public_bytes(encoding=serialization.Encoding.DER,
                                       format=serialization.PublicFormat.SubjectPublicKeyInfo)
         digest = hashlib.sha256(der).hexdigest()
-        print(digest)
+        LOG_VERBOSE(digest)
         return digest
+
+    async def handle_message(self, data, client_info):
+        """
+        将一条消息执行到完成，可以按需修改。
+        """
+        if 'action' in data:
+            if data['action'] == 'heartbeat':
+                self.last_package[client_info['websocket']] = time.time()
+            elif data['action'] == 'join':
+                LOG_VERBOSE(f'{data}')
+                self.join_channel(data, client_info)
+            elif data['action'] == 'send_key':
+                LOG_VERBOSE(f'{data}')
+                await self.send_key(data, client_info)
+            elif data['action'] == 'send_message':
+                LOG_VERBOSE(f'{data}')
+                await self.send_message(data, client_info)
 
     async def handler(self, websocket, path):
         client_info = {'websocket': websocket, 'public_key': None, 'public_key_hash': None}
@@ -47,7 +64,7 @@ class Server:
                 try:
                     message = await asyncio.wait_for(websocket.recv(), timeout=HEARTBEAT_INTERVAL)
                 except asyncio.TimeoutError:
-                    if time.time() - self.last_package[websocket] > HEARTBEAT_INTERVAL * 2:
+                    if time.time() - self.last_package[websocket] > HEARTBEAT_INTERVAL * 5:
                         LOG(f'No heartbeat, client assumed disconnected.')
                         break
                     await websocket.send(json.dumps({'action': 'heartbeat'}))
@@ -55,18 +72,7 @@ class Server:
 
                 data = json.loads(message)
                 self.last_package[websocket] = time.time()
-                if 'action' in data:
-                    if data['action'] == 'heartbeat':
-                        self.last_package[websocket] = time.time()
-                    elif data['action'] == 'join':
-                        LOG(f'{data}')
-                        self.join_channel(data, client_info)
-                    elif data['action'] == 'send_key':
-                        LOG(f'{data}')
-                        await self.send_key(data, client_info)
-                    elif data['action'] == 'send_message':
-                        LOG(f'{data}')
-                        await self.send_message(data, client_info)
+                asyncio.ensure_future(self.handle_message(data, client_info))
         except websockets.exceptions.ConnectionClosedError as e:
             LOG(f'WebSocket connection closed: {e.code} - {e.reason}')
         except Exception as e:
@@ -181,7 +187,7 @@ class Server:
 
 # 创建SSL上下文
 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-ssl_context.load_cert_chain('chat.yuchu.space.pem', 'chat.yuchu.space.key')
+ssl_context.load_cert_chain('chat.0f31.com.pem', 'chat.0f31.com.key')
 
 server = Server()
 start_server = websockets.serve(server.handler, "0.0.0.0", 8765, ssl=ssl_context, max_size=1024 * 1024 * 100)  # 10MB
