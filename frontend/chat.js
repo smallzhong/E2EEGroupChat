@@ -1,4 +1,4 @@
-const g_uri = 'wss://chat.yuchu.space:8765';
+const g_uri = 'wss://ws.0f31.com:8765';
 const nonceLifeTime = 300000; // nonce的生命是5分钟
 const nonceCleanUpInterval = 60000; // 每隔1分钟清理一次nonce
 let g_websocket = null;
