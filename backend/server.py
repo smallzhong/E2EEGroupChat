@@ -159,12 +159,17 @@ class Server:
         encrypted_message = data['encrypted_message']
         for client in self.channels[channel_id]:
             if client['websocket'] != client_info['websocket']:
-                await client['websocket'].send(
-                    json.dumps({
-                        'action': 'receive_message',
-                        'encrypted_message': encrypted_message,
-                        'public_key_hash': client_info['public_key_hash']
-                    }))
+                # Create a new task for sending the message but do not await it
+                asyncio.ensure_future(
+                    client['websocket'].send(
+                        json.dumps({
+                            'action': 'receive_message',
+                            'encrypted_message': encrypted_message,
+                            'public_key_hash': client_info['public_key_hash']
+                        })
+                    )
+                )
+                await asyncio.sleep(0)
 
     def handle_client_disconnect(self, client_info):
         # 查找客户端所在的频道
@@ -187,7 +192,7 @@ class Server:
 
 # 创建SSL上下文
 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-ssl_context.load_cert_chain('chat.0f31.com.pem', 'chat.0f31.com.key')
+ssl_context.load_cert_chain('chat.yuchu.space.pem', 'chat.yuchu.space.key')
 
 server = Server()
 start_server = websockets.serve(server.handler, "0.0.0.0", 8765, ssl=ssl_context, max_size=1024 * 1024 * 100)  # 10MB

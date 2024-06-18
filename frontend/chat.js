@@ -161,12 +161,30 @@ document.getElementById('input-message').addEventListener('paste', function (eve
     }
 });
 
-
+const SLICE_SIZE = 1024 * 1024; // 1MB
+function generateUniqueId() {
+    return 'image_' + Math.random().toString(36).substr(2, 9);
+}
 function innerSendImageBase64(base64Image) {
-    const encryptedMessage = encryptMessage(JSON.stringify({ base64Image: base64Image, change_nickname: g_myNickName }));
-    g_websocket.send(JSON.stringify({
-        action: 'send_message', channel_id: g_hashed_channel_id, encrypted_message: encryptedMessage
-    }));
+    const totalSlices = Math.ceil(base64Image.length / SLICE_SIZE);
+    const imageId = generateUniqueId(); // 生成唯一的图片ID
+    for (let i = 0; i < totalSlices; i++) {
+        const slice = base64Image.slice(i * SLICE_SIZE, (i + 1) * SLICE_SIZE);
+        const encryptedMessage = encryptMessage(JSON.stringify({
+            imageData: {
+                base64Image: slice,
+                imageId: imageId,
+                sliceIndex: i,
+                totalSlices: totalSlices
+            },
+            change_nickname: g_myNickName
+        }));
+        g_websocket.send(JSON.stringify({
+            action: 'send_message',
+            channel_id: g_hashed_channel_id,
+            encrypted_message: encryptedMessage
+        }));
+    }
     // 展示自己的消息
     const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);
     const myNickname = g_myNickName;
@@ -715,12 +733,8 @@ function handleIncomingMessage(data) {
             sendHeartbeat();
             break;
         case 'receive_message':
-            console.log(data);
+            //console.log(data);
             handleIncomeMessage(messageData.encrypted_message, messageData.public_key_hash);
-            if (!g_isPageFocused) {
-                g_unreadMessages++;
-                updatePageTitle();
-            }
             break;
         case 'receive_public_key':
             console.log(data);
@@ -878,7 +892,11 @@ function handleIncomeMessage(encryptedMessage, publicKeyHash) {
     }
 }
 
+let imageSlices = {};
+let imagePlaceholders = {}; // 存储图片占位符
+
 function handleIncomeMessageJsonFields(publicKeyHash, json) {
+    let isNewMessageFlag = true;
     for (const key in json) {
         if (json.hasOwnProperty(key)) {
             if (key === 'change_nickname') {
@@ -888,11 +906,45 @@ function handleIncomeMessageJsonFields(publicKeyHash, json) {
                 const fingerprint = getShortHash(publicKeyHash);
                 const fingerprintColor = getColorFromSHA256(publicKeyHash);
                 appendMessageToChatBox(nickname, fingerprint, json[key], fingerprintColor);
-            } else if (key === 'base64Image') {
-                const nickname = getNickname(publicKeyHash);
-                const fingerprint = getShortHash(publicKeyHash);
-                const fingerprintColor = getColorFromSHA256(publicKeyHash);
-                appendImageToChatBox(nickname, fingerprint, json[key], fingerprintColor);
+            } else if (key === 'imageData') {
+                try {
+                    const imageData = json[key];
+                    if (!imageData) {
+                        throw new Error('imageData is undefined');
+                    }
+                    const { imageId, base64Image, sliceIndex, totalSlices } = imageData;
+                    const nickname = getNickname(publicKeyHash);
+                    const fingerprint = getShortHash(publicKeyHash);
+                    const fingerprintColor = getColorFromSHA256(publicKeyHash);
+
+                    // 如果是分片传输
+                    const imageKey = `${publicKeyHash}-${imageId}`;
+                    if (!imageSlices[imageKey]) {
+                        imageSlices[imageKey] = [];
+                        createImagePlaceholder(nickname, fingerprint, fingerprintColor, imageKey, imageId);
+                    }
+                    imageSlices[imageKey][sliceIndex] = base64Image;
+
+                    // 更新占位符的进度
+                    const receivedSlices = imageSlices[imageKey].filter(slice => slice !== undefined).length;
+                    updateImagePlaceholder(nickname, fingerprint, fingerprintColor, imageKey, receivedSlices, totalSlices, imageId);
+
+                    // 如果收齐了所有分片
+                    if (receivedSlices === totalSlices) {  // 确保所有分片已收到
+                        const fullImageBase64 = imageSlices[imageKey].join('');
+                        delete imageSlices[imageKey];
+                        const placeholderElem = document.getElementById(imageKey);
+                        if (placeholderElem) {
+                            placeholderElem.remove(); // 移除占位符
+                        }
+                        appendImageToChatBox(nickname, fingerprint, fullImageBase64, fingerprintColor);
+                    } else {
+                        isNewMessageFlag = false;
+                    }
+                } catch (error) {
+                    console.error(`Error processing image slice data: ${error.message}`);
+                    isNewMessageFlag = false;
+                }
             } else if (key === 'base64File') {
                 const nickname = getNickname(publicKeyHash);
                 const fingerprint = getShortHash(publicKeyHash);
@@ -900,10 +952,64 @@ function handleIncomeMessageJsonFields(publicKeyHash, json) {
                 appendFileToChatBox(nickname, fingerprint, json[key], json.fileName, fingerprintColor);
             } else {
                 console.warn(`Unknown field: ${key}`);
+                // TODO: 传base64File的时候，有一些字段是会走到这里的，所以这里暂时不能false，有空把前面的封装一遍。
+                // isNewMessageFlag = false;
             }
         }
     }
+
+    if (isNewMessageFlag === true && !g_isPageFocused) {
+        g_unreadMessages++;
+        updatePageTitle();
+    }
 }
+
+function createImagePlaceholder(nickname, fingerprint, fingerprintColor, imageKey, imageId) {
+    const chatBox = document.getElementById('chat-box');
+    const messageElem = document.createElement('p');
+    messageElem.id = imageKey; // 设置占位符的id
+
+    const nicknameText = document.createTextNode(` ${nickname}`);
+    const fingerprintSpan = document.createElement('span');
+    fingerprintSpan.textContent = fingerprint;
+    fingerprintSpan.style.color = fingerprintColor;
+    fingerprintSpan.classList.add("message-text");
+    const closingParenText = document.createTextNode(`: 正在接收图片${imageId} (0%)`);
+
+    messageElem.appendChild(fingerprintSpan);
+    messageElem.appendChild(nicknameText);
+    messageElem.appendChild(closingParenText);
+
+    chatBox.appendChild(messageElem);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function updateImagePlaceholder(nickname, fingerprint, fingerprintColor, imageKey, receivedSlices, totalSlices, imageId) {
+    const placeholderElem = document.getElementById(imageKey);
+    if (placeholderElem) {
+        placeholderElem.remove(); // 移除占位符
+        const chatBox = document.getElementById('chat-box');
+        const messageElem = document.createElement('p');
+        messageElem.id = imageKey; // 设置占位符的id
+
+        const nicknameText = document.createTextNode(` ${nickname}`);
+        const fingerprintSpan = document.createElement('span');
+        fingerprintSpan.textContent = fingerprint;
+        fingerprintSpan.style.color = fingerprintColor;
+        fingerprintSpan.classList.add("message-text");
+        const progress = Math.floor((receivedSlices / totalSlices) * 100);
+
+        const closingParenText = document.createTextNode(`：正在接收图片${imageId} (${progress}%)`);
+
+        messageElem.appendChild(fingerprintSpan);
+        messageElem.appendChild(nicknameText);
+        messageElem.appendChild(closingParenText);
+
+        chatBox.appendChild(messageElem);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+}
+
 
 
 function verifySignature(publicKeyHash, utf8MessageBytes, signature) {
