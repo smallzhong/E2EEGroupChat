@@ -19,18 +19,24 @@ def LOG(msg):
     print(msg)
 
 
+def LOG_WARN(msg):
+    msg = "[i]:" + msg
+    print(msg)
+
+
 def LOG_VERBOSE(msg):
     msg = "[v]:" + msg
     # print(msg)
 
 
-HEARTBEAT_INTERVAL = 25  # seconds
+HEARTBEAT_INTERVAL = 25 # seconds
 
 
 class Server:
     def __init__(self):
         self.channels = {}
         self.last_package = {}
+        self.message_queue = asyncio.Queue()  # 添加一个消息队列
 
     def hash_public_key(self, public_key):
         der = public_key.public_bytes(encoding=serialization.Encoding.DER,
@@ -40,9 +46,6 @@ class Server:
         return digest
 
     async def handle_message(self, data, client_info):
-        """
-        将一条消息执行到完成，可以按需修改。
-        """
         if 'action' in data:
             if data['action'] == 'heartbeat':
                 self.last_package[client_info['websocket']] = time.time()
@@ -53,26 +56,37 @@ class Server:
                 LOG_VERBOSE(f'{data}')
                 await self.send_key(data, client_info)
             elif data['action'] == 'send_message':
+                await self.message_queue.put((data, client_info))
+
+    async def process_message_queue(self):
+        # 持续处理队列中的消息
+        while True:
+            data, client_info = await self.message_queue.get()
+            if data['action'] == 'send_message':
                 LOG_VERBOSE(f'{data}')
                 await self.send_message(data, client_info)
+            else:
+                LOG(f'有点问题，process_message_queue居然不是send_message')
 
     async def handler(self, websocket, path):
         client_info = {'websocket': websocket, 'public_key': None, 'public_key_hash': None}
         self.last_package[websocket] = time.time()
         try:
+            # 启动消息处理队列协程
+            asyncio.create_task(self.process_message_queue())
             while True:
                 try:
                     message = await asyncio.wait_for(websocket.recv(), timeout=HEARTBEAT_INTERVAL)
                 except asyncio.TimeoutError:
                     if time.time() - self.last_package[websocket] > HEARTBEAT_INTERVAL * 5:
-                        LOG(f'No heartbeat, client assumed disconnected.')
+                        LOG_WARN(f'No heartbeat, client assumed disconnected.')
                         break
                     await websocket.send(json.dumps({'action': 'heartbeat'}))
                     continue
 
                 data = json.loads(message)
                 self.last_package[websocket] = time.time()
-                asyncio.ensure_future(self.handle_message(data, client_info))
+                asyncio.create_task(self.handle_message(data, client_info))
         except websockets.exceptions.ConnectionClosedError as e:
             LOG(f'WebSocket connection closed: {e.code} - {e.reason}')
         except Exception as e:
@@ -126,7 +140,7 @@ class Server:
             self.channels[channel_id] = [client_info]
         else:
             self.channels[channel_id].append(client_info)
-            asyncio.ensure_future(self.send_public_keys(channel_id))
+            asyncio.create_task(self.send_public_keys(channel_id))
 
     async def send_key(self, data, client_info):
         channel_id = data['channel_id']
@@ -160,14 +174,12 @@ class Server:
         for client in self.channels[channel_id]:
             if client['websocket'] != client_info['websocket']:
                 # Create a new task for sending the message but do not await it
-                asyncio.ensure_future(
-                    client['websocket'].send(
-                        json.dumps({
-                            'action': 'receive_message',
-                            'encrypted_message': encrypted_message,
-                            'public_key_hash': client_info['public_key_hash']
-                        })
-                    )
+                await client['websocket'].send(
+                    json.dumps({
+                        'action': 'receive_message',
+                        'encrypted_message': encrypted_message,
+                        'public_key_hash': client_info['public_key_hash']
+                    })
                 )
                 await asyncio.sleep(0)
 
@@ -183,16 +195,16 @@ class Server:
                 })
                 # 发送退出通知给其他成员
                 for client in clients:
-                    asyncio.ensure_future(client['websocket'].send(disconnect_message))
+                    asyncio.create_task(client['websocket'].send(disconnect_message))
                 # 如果频道中还有其他客户端，重新生成并分发AES密钥
                 if clients:
-                    asyncio.ensure_future(self.send_public_keys(channel_id))
+                    asyncio.create_task(self.send_public_keys(channel_id))
                 break
 
 
 # 创建SSL上下文
 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-ssl_context.load_cert_chain('chat.yuchu.space.pem', 'chat.yuchu.space.key')
+ssl_context.load_cert_chain('ws.pem', 'ws.key')
 
 server = Server()
 start_server = websockets.serve(server.handler, "0.0.0.0", 8765, ssl=ssl_context, max_size=1024 * 1024 * 100)  # 10MB

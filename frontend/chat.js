@@ -1,4 +1,5 @@
 const g_uri = 'wss://ws.0f31.com:8765';
+const g_fileServerBaseUrl = "https://filebase.yuchu.space";
 const nonceLifeTime = 300000; // nonce的生命是5分钟
 const nonceCleanUpInterval = 60000; // 每隔1分钟清理一次nonce
 let g_websocket = null;
@@ -18,7 +19,12 @@ let g_pendingNewMembers = []; // 存储待处理的新成员公钥哈希
 let receivedNonces = new Map(); // 存储nonce和时间戳
 let g_salt1 = "https://github.com/smallzhong/E2EEGroupChat";
 let g_salt2 = "smallzhong";
+let g_imageSlices = {};
+let g_imagePlaceholders = {}; // 存储图片占位符
 const g_MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+// TODO:感觉分片不太好，还是得http传，不能websocket传。这里先改成不分片。
+const g_SLICE_SIZE = 0.5 * 1024 * 1024; // 0.5MB
+
 
 
 function loadPrivateKey() {
@@ -44,10 +50,10 @@ document.getElementById('upload-file-button').addEventListener('click', function
 document.getElementById('file-input').addEventListener('change', function (event) {
     const file = event.target.files[0];
     if (file) {
-        if (file.size > g_MAX_FILE_SIZE) {
-            alert('文件过大，请选择一个小于5MB的文件。');
-            return;
-        }
+        // if (file.size > g_MAX_FILE_SIZE) {
+        //     alert('文件过大，请选择一个小于5MB的文件。');
+        //     return;
+        // }
         const reader = new FileReader();
         reader.onload = function (e) {
             const base64File = e.target.result;
@@ -59,12 +65,108 @@ document.getElementById('file-input').addEventListener('change', function (event
     }
 });
 
-function innerSendFileBase64(base64File, fileName) {
-    const encryptedMessage = encryptMessage(JSON.stringify({ base64File: base64File, fileName: fileName, change_nickname: g_myNickName }));
+async function uploadFileToServer(content) {
+    // 创建一个Blob对象，它代表了一个不可变的、原始数据的类文件对象。
+    const file = new Blob([content], { type: 'application/octet-stream' });
+
+    // 创建一个FormData对象，它用来组合键值对以便发送。
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // 发送POST请求到服务器的/upload端点。
+    const response = await fetch(g_fileServerBaseUrl + '/upload', { method: 'POST', body: formData });
+
+    // 解析响应为JSON格式。
+    const data = await response.json();
+
+    // 返回上传的路径。
+    return g_fileServerBaseUrl + data.url;
+}
+
+function sendFileMessage(downloadUrl, fileName, fileHash, aesKey) {
+    const encryptedMessage = encryptMessage(JSON.stringify({
+        fileInfo: {
+            url: downloadUrl,
+            fileName: fileName,
+            sha256: fileHash,
+            aesKey: forge.util.encode64(aesKey), // 用Base64编码AES密钥
+        },
+        change_nickname: g_myNickName
+    }));
     g_websocket.send(JSON.stringify({
-        action: 'send_message', channel_id: g_hashed_channel_id, encrypted_message: encryptedMessage
+        action: 'send_message',
+        channel_id: g_hashed_channel_id,
+        encrypted_message: encryptedMessage
     }));
 }
+async function downloadAndVerifyFile(url, expectedHash) {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const decryptedFile = decryptFileWithAES(arrayBuffer, expectedHash);
+
+    if (calculateSHA256(decryptedFile) !== expectedHash) {
+        throw new Error("File hash does not match expected hash.");
+    }
+    return decryptedFile;
+}
+
+function encryptFileWithAES(file, aesKey) {
+    const cipher = forge.cipher.createCipher('AES-CTR', aesKey);
+    const iv = forge.random.getBytesSync(16);
+    cipher.start({ iv: iv });
+    cipher.update(forge.util.createBuffer(file));
+    cipher.finish();
+    return iv + cipher.output.getBytes(); // 返回IV和密文的组合
+}
+
+function decryptFileWithAES(encryptedContent, aesKey) {
+    const iv = encryptedContent.slice(0, 16); // 前16个字节为IV
+    const encryptedData = encryptedContent.slice(16);
+
+    const decipher = forge.cipher.createDecipher('AES-CTR', aesKey);
+    decipher.start({ iv: iv });
+    decipher.update(forge.util.createBuffer(encryptedData));
+    if (!decipher.finish()) {
+        throw new Error('Decryption failed');
+    }
+    return decipher.output.getBytes(); // 返回解密后的数据
+}
+
+async function innerSendFileBase64(file, fileName) {
+    try {
+        const aesKey = forge.random.getBytesSync(32); // 生成一个新的AES密钥
+        const encryptedFile = encryptFileWithAES(atob(file.split(',')[1]), aesKey); // 用AES密钥加密文件 (去掉 base64 前缀)
+        const downloadUrl = await uploadFileToServer(encryptedFile); // 上传加密后的文件
+        const fileHash = calculateSHA256(atob(file.split(',')[1])); // 计算原始文件的哈希值
+
+        console.log(`downloadUrl = ${downloadUrl}`);
+        sendFileMessage(downloadUrl, fileName, fileHash, aesKey); // 发送文件消息和AES密钥
+    } catch (error) {
+        console.error("Error processing file:", error);
+    }
+}
+
+async function downloadAndDecryptFile(url, aesKeyBase64) {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const encryptedContent = await response.text();
+    const aesKey = forge.util.decode64(aesKeyBase64);
+    return decryptFileWithAES(encryptedContent, aesKey);
+}
+
+function calculateSHA256(file) {
+    // TODO: 这里要改成支持校验，
+    // return "12345";
+    const md = forge.md.sha256.create();
+    md.update(file);
+    return md.digest().toHex();  // 返回十六进制格式的哈希值
+}
+
 
 function appendFileToChatBox(nickname, fingerprint, base64File, fileName, fingerprintColor) {
     if (!isValidBase64File(base64File) || !isValidFileName(fileName)) {
@@ -161,30 +263,35 @@ document.getElementById('input-message').addEventListener('paste', function (eve
     }
 });
 
-const SLICE_SIZE = 1024 * 1024; // 1MB
 function generateUniqueId() {
     return 'image_' + Math.random().toString(36).substr(2, 9);
 }
-function innerSendImageBase64(base64Image) {
-    const totalSlices = Math.ceil(base64Image.length / SLICE_SIZE);
-    const imageId = generateUniqueId(); // 生成唯一的图片ID
-    for (let i = 0; i < totalSlices; i++) {
-        const slice = base64Image.slice(i * SLICE_SIZE, (i + 1) * SLICE_SIZE);
-        const encryptedMessage = encryptMessage(JSON.stringify({
-            imageData: {
-                base64Image: slice,
-                imageId: imageId,
-                sliceIndex: i,
-                totalSlices: totalSlices
-            },
-            change_nickname: g_myNickName
-        }));
-        g_websocket.send(JSON.stringify({
-            action: 'send_message',
-            channel_id: g_hashed_channel_id,
-            encrypted_message: encryptedMessage
-        }));
-    }
+
+function sendImageMessage(imagePrefix, downloadUrl, imageHash, aesKey) {
+    const encryptedMessage = encryptMessage(JSON.stringify({
+        imageInfo: {
+            url: downloadUrl,
+            sha256: imageHash,
+            aesKey: forge.util.encode64(aesKey), // 用Base64编码AES密钥
+            imagePrefix: imagePrefix
+        },
+        change_nickname: g_myNickName
+    }));
+    g_websocket.send(JSON.stringify({
+        action: 'send_message',
+        channel_id: g_hashed_channel_id,
+        encrypted_message: encryptedMessage
+    }));
+}
+
+async function innerSendImageBase64(base64Image) {
+    const [imagePrefix, content] = base64Image.split(','); // 获取Base64编码的图片数据
+    const aesKey = forge.random.getBytesSync(32); // 生成一个新的AES密钥
+    const encryptedImage = encryptFileWithAES(atob(content), aesKey); // 用AES密钥加密图片
+    const downloadUrl = await uploadFileToServer(encryptedImage); // 上传加密后的图片
+    const imageHash = calculateSHA256(atob(content)); // 计算原始图片的哈希值
+
+    sendImageMessage(imagePrefix, downloadUrl, imageHash, aesKey); // 发送图片消息
     // 展示自己的消息
     const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);
     const myNickname = g_myNickName;
@@ -192,6 +299,63 @@ function innerSendImageBase64(base64Image) {
     const fingerprintColor = getColorFromSHA256(myPublicKeyHash);
     appendImageToChatBox(myNickname, fingerprint, base64Image, fingerprintColor);
 }
+
+
+// function innerSendImageBase64(base64Image) {
+//     // 计算需要多少个分片
+//     const totalSlices = Math.ceil(base64Image.length / g_SLICE_SIZE);
+
+//     // 如果图片小于或等于g_SLICE_SIZE，则作为单个分片处理
+//     if (totalSlices <= 1) {
+//         const encryptedMessage = encryptMessage(JSON.stringify({
+//             imageData: {
+//                 base64Image: base64Image,  // 发送整个图片
+//                 imageId: generateUniqueId(), // 生成唯一的图片ID
+//                 sliceIndex: 0,  // 唯一的分片索引
+//                 totalSlices: 1  // 只有一个分片
+//             },
+//             change_nickname: g_myNickName
+//         }));
+//         g_websocket.send(JSON.stringify({
+//             action: 'send_message',
+//             channel_id: g_hashed_channel_id,
+//             encrypted_message: encryptedMessage
+//         }));
+//         // 展示自己的消息
+//         const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);
+//         const myNickname = g_myNickName;
+//         const fingerprint = getShortHash(myPublicKeyHash);
+//         const fingerprintColor = getColorFromSHA256(myPublicKeyHash);
+//         appendImageToChatBox(myNickname, fingerprint, base64Image, fingerprintColor);
+//     } else {
+//         // 如果图片大于g_SLICE_SIZE，则按原来的逻辑处理
+//         const imageId = generateUniqueId(); // 生成唯一的图片ID
+//         for (let i = 0; i < totalSlices; i++) {
+//             const slice = base64Image.slice(i * g_SLICE_SIZE, (i + 1) * g_SLICE_SIZE);
+//             const encryptedMessage = encryptMessage(JSON.stringify({
+//                 imageData: {
+//                     base64Image: slice,
+//                     imageId: imageId,
+//                     sliceIndex: i,
+//                     totalSlices: totalSlices
+//                 },
+//                 change_nickname: g_myNickName
+//             }));
+//             g_websocket.send(JSON.stringify({
+//                 action: 'send_message',
+//                 channel_id: g_hashed_channel_id,
+//                 encrypted_message: encryptedMessage
+//             }));
+//         }
+//         // 展示自己的消息
+//         const myPublicKeyHash = getPublicKeyHash(g_myPublicKey);
+//         const myNickname = g_myNickName;
+//         const fingerprint = getShortHash(myPublicKeyHash);
+//         const fingerprintColor = getColorFromSHA256(myPublicKeyHash);
+//         appendImageToChatBox(myNickname, fingerprint, base64Image, fingerprintColor);
+//     }
+// }
+
 
 function innerSendMessage(message) {
     const encryptedMessage = encryptMessage(JSON.stringify({ message: message, change_nickname: g_myNickName }));
@@ -558,6 +722,7 @@ document.addEventListener('DOMContentLoaded', function () {
             e.preventDefault();  // 阻止默认的 Enter 行为
             const imagePreview = document.getElementById('image-preview');
             sendMessage();
+            // TODO:这里可以不传base64，节省空间。
             if (imagePreview.dataset.base64) {
                 if (imagePreview.dataset.fileName) {
                     // 发送文件
@@ -569,7 +734,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     delete imagePreview.dataset.fileName; // 清除存储的文件名
                 } else {
                     // 发送图片
-                    console.log(imagePreview.dataset.base64);
                     innerSendImageBase64(imagePreview.dataset.base64); // 发送图片
                     imagePreview.innerHTML = ''; // 清空预览
                     delete imagePreview.dataset.base64; // 清除存储的图片数据
@@ -614,6 +778,35 @@ function cleanExpiredNonces() {
     }
 }
 
+let g_heartbeatInterval = undefined;
+
+// 开始定时发送心跳
+function startHeartbeat() {
+    console.log(`startHeartbeat`);
+    // 每隔1秒发送一次心跳
+    g_heartbeatInterval = setInterval(function () {
+        sendHeartbeat();
+    }, 1000);
+}
+
+// 停止定时发送心跳
+function stopHeartbeat() {
+    console.log(`inside stopHeartbeat`);
+    if (g_heartbeatInterval) {
+        clearInterval(g_heartbeatInterval);
+        g_heartbeatInterval = null;
+    }
+}
+
+// 发送心跳消息
+function sendHeartbeat() {
+    console.log(`发送心跳包。`);
+    if (g_websocket && g_websocket.readyState === WebSocket.OPEN) {
+        const message = JSON.stringify({ action: 'heartbeat' });
+        g_websocket.send(message);
+    }
+}
+
 function connectWebSocket() {
     if (g_websocket && g_websocket.readyState !== WebSocket.CLOSED) {
         console.log('当前websocket还是connect状态，给close掉。');
@@ -623,6 +816,9 @@ function connectWebSocket() {
     g_websocket = new WebSocket(g_uri);
     g_websocket.onopen = function () {
         console.log("WebSocket 已连接");
+        // 一旦WebSocket连接打开，开始定时发送心跳
+        startHeartbeat();
+        sendHeartbeat();
         joinChannel(g_hashed_channel_id);
     };
     g_websocket.onmessage = function (event) {
@@ -633,6 +829,7 @@ function connectWebSocket() {
     };
     g_websocket.onclose = function (event) {
         console.log('WebSocket closed, attempting to reconnect...', event.reason);
+        stopHeartbeat(); // 停止心跳
         setTimeout(connectWebSocket, g_reconnectInterval);
     };
 }
@@ -849,10 +1046,10 @@ function handleReceiveKey(data) {
     sendNicknamesToNewMembers();
 }
 
-function sendHeartbeat() {
-    const message = JSON.stringify({ action: 'heartbeat' });
-    g_websocket.send(message);
-}
+// function sendHeartbeat() {
+//     const message = JSON.stringify({ action: 'heartbeat' });
+//     g_websocket.send(message);
+// }
 
 function handleIncomeMessage(encryptedMessage, publicKeyHash) {
     const messageData = JSON.parse(encryptedMessage);
@@ -881,7 +1078,7 @@ function handleIncomeMessage(encryptedMessage, publicKeyHash) {
             }
 
             receivedNonces.set(receivedNonce, timestamp);
-            console.log(messageJson);
+            // console.log(messageJson);
             const innerMessageJson = JSON.parse(messageJson.message);
             handleIncomeMessageJsonFields(publicKeyHash, innerMessageJson);
         } catch (e) {
@@ -892,8 +1089,85 @@ function handleIncomeMessage(encryptedMessage, publicKeyHash) {
     }
 }
 
-let imageSlices = {};
-let imagePlaceholders = {}; // 存储图片占位符
+async function handleFileDownload(nickname, fingerprint, fingerprintColor, event, url, fileName, expectedHash, messageElem, aesKeyBase64) {
+    try {
+        const fileContent = await downloadAndDecryptFile(url, aesKeyBase64); // 下载并解密文件
+        const base64File = fileContent; // 这里的base64File其实是解密后的文件内容
+        if (calculateSHA256(base64File) !== expectedHash) {
+            throw new Error("File hash does not match expected hash.");
+        }
+
+        messageElem.innerHTML = ''; // 清空消息元素内容
+
+        const fileLink = document.createElement('a');
+        fileLink.href = `data:application/octet-stream;base64,${btoa(fileContent)}`; // 创建下载链接
+        // fileLink.href = `${fileContent}`;
+        fileLink.download = fileName;
+        fileLink.textContent = `${fingerprint}(${nickname})${fileName}`;
+        fileLink.style.color = '#007bff';
+        fileLink.style.textDecoration = 'underline';
+
+        messageElem.appendChild(fileLink);
+    } catch (error) {
+        console.error("File verification failed:", error);
+        alert("文件校验失败，无法加载文件。");
+    }
+}
+
+function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    bytes.forEach(b => binary += String.fromCharCode(b));
+    return window.btoa(binary);
+}
+
+
+function appendFileLinkToChatBox(nickname, fingerprint, downloadUrl, fileName, fingerprintColor, fileHash, aesKeyBase64) {
+    const chatBox = document.getElementById('chat-box');
+    const messageElem = document.createElement('p');
+
+    const nicknameText = document.createTextNode(`${nickname} `);
+    const fingerprintSpan = document.createElement('span');
+    fingerprintSpan.textContent = fingerprint;
+    fingerprintSpan.style.color = fingerprintColor;
+    fingerprintSpan.classList.add("message-text");
+
+    const fileLink = document.createElement('a'); // 使用<a>元素作为文件名和点击加载的容器
+    fileLink.href = "#"; // 使用锚点防止页面跳转
+    fileLink.textContent = `${fileName} （点击加载）`;
+    fileLink.style.color = '#007bff';
+    fileLink.style.textDecoration = 'underline';
+
+    // 将文件下载和验证处理程序绑定到<a>元素的点击事件
+    fileLink.addEventListener('click', function (event) {
+        event.preventDefault(); // 阻止默认行为
+        handleFileDownload(nickname, fingerprint, fingerprintColor, event, downloadUrl, fileName, fileHash, messageElem, aesKeyBase64);
+    });
+
+    messageElem.appendChild(fingerprintSpan);
+    messageElem.appendChild(nicknameText);
+    messageElem.appendChild(fileLink);
+    chatBox.appendChild(messageElem);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+async function downloadAndDecryptImage(imagePrefix, url, aesKeyBase64, expectedHash, callback) {
+    try {
+        const encryptedContent = await fetch(url).then(response => response.text());
+        const aesKey = forge.util.decode64(aesKeyBase64);
+        const decryptedImage = decryptFileWithAES(encryptedContent, aesKey);
+        const imageBase64 = btoa(decryptedImage);
+
+        if (calculateSHA256(decryptedImage) !== expectedHash) {
+            throw new Error("Image hash does not match expected hash.");
+        }
+        callback(`${imagePrefix},${imageBase64}`);
+    } catch (error) {
+        console.error("Error downloading or decrypting image:", error);
+    }
+}
+
+
 
 function handleIncomeMessageJsonFields(publicKeyHash, json) {
     let isNewMessageFlag = true;
@@ -906,51 +1180,73 @@ function handleIncomeMessageJsonFields(publicKeyHash, json) {
                 const fingerprint = getShortHash(publicKeyHash);
                 const fingerprintColor = getColorFromSHA256(publicKeyHash);
                 appendMessageToChatBox(nickname, fingerprint, json[key], fingerprintColor);
-            } else if (key === 'imageData') {
-                try {
-                    const imageData = json[key];
-                    if (!imageData) {
-                        throw new Error('imageData is undefined');
-                    }
-                    const { imageId, base64Image, sliceIndex, totalSlices } = imageData;
-                    const nickname = getNickname(publicKeyHash);
-                    const fingerprint = getShortHash(publicKeyHash);
-                    const fingerprintColor = getColorFromSHA256(publicKeyHash);
+            }
+            //else if (key === 'imageData') {
+            //     try {
+            //         const imageData = json[key];
+            //         if (!imageData) {
+            //             throw new Error('imageData is undefined');
+            //         }
+            //         const { imageId, base64Image, sliceIndex, totalSlices } = imageData;
+            //         const nickname = getNickname(publicKeyHash);
+            //         const fingerprint = getShortHash(publicKeyHash);
+            //         const fingerprintColor = getColorFromSHA256(publicKeyHash);
 
-                    // 如果是分片传输
-                    const imageKey = `${publicKeyHash}-${imageId}`;
-                    if (!imageSlices[imageKey]) {
-                        imageSlices[imageKey] = [];
-                        createImagePlaceholder(nickname, fingerprint, fingerprintColor, imageKey, imageId);
-                    }
-                    imageSlices[imageKey][sliceIndex] = base64Image;
+            //         // 如果是分片传输
+            //         const imageKey = `${publicKeyHash}-${imageId}`;
+            //         if (!g_imageSlices[imageKey]) {
+            //             g_imageSlices[imageKey] = [];
+            //             createImagePlaceholder(nickname, fingerprint, fingerprintColor, imageKey, imageId);
+            //         }
+            //         g_imageSlices[imageKey][sliceIndex] = base64Image;
 
-                    // 更新占位符的进度
-                    const receivedSlices = imageSlices[imageKey].filter(slice => slice !== undefined).length;
-                    updateImagePlaceholder(nickname, fingerprint, fingerprintColor, imageKey, receivedSlices, totalSlices, imageId);
+            //         // 更新占位符的进度
+            //         const receivedSlices = g_imageSlices[imageKey].filter(slice => slice !== undefined).length;
+            //         updateImagePlaceholder(nickname, fingerprint, fingerprintColor, imageKey, receivedSlices, totalSlices, imageId);
 
-                    // 如果收齐了所有分片
-                    if (receivedSlices === totalSlices) {  // 确保所有分片已收到
-                        const fullImageBase64 = imageSlices[imageKey].join('');
-                        delete imageSlices[imageKey];
-                        const placeholderElem = document.getElementById(imageKey);
-                        if (placeholderElem) {
-                            placeholderElem.remove(); // 移除占位符
-                        }
-                        appendImageToChatBox(nickname, fingerprint, fullImageBase64, fingerprintColor);
-                    } else {
-                        isNewMessageFlag = false;
-                    }
-                } catch (error) {
-                    console.error(`Error processing image slice data: ${error.message}`);
-                    isNewMessageFlag = false;
-                }
-            } else if (key === 'base64File') {
+            //         // 如果收齐了所有分片
+            //         if (receivedSlices === totalSlices) {  // 确保所有分片已收到
+            //             const fullImageBase64 = g_imageSlices[imageKey].join('');
+            //             delete g_imageSlices[imageKey];
+            //             const placeholderElem = document.getElementById(imageKey);
+            //             if (placeholderElem) {
+            //                 placeholderElem.remove(); // 移除占位符
+            //             }
+            //             appendImageToChatBox(nickname, fingerprint, fullImageBase64, fingerprintColor);
+            //         } else {
+            //             isNewMessageFlag = false;
+            //         }
+            //     } catch (error) {
+            //         console.error(`Error processing image slice data: ${error.message}`);
+            //         isNewMessageFlag = false;
+            //     }
+            // } 
+            else if (key === 'base64File') {
                 const nickname = getNickname(publicKeyHash);
                 const fingerprint = getShortHash(publicKeyHash);
                 const fingerprintColor = getColorFromSHA256(publicKeyHash);
                 appendFileToChatBox(nickname, fingerprint, json[key], json.fileName, fingerprintColor);
-            } else {
+            } else if (key === 'fileInfo') { // Assuming 'url' is the key used for the download URL in the message
+                const nickname = getNickname(publicKeyHash);
+                const fingerprint = getShortHash(publicKeyHash);
+                const fingerprintColor = getColorFromSHA256(publicKeyHash);
+                appendFileLinkToChatBox(nickname, fingerprint, json['fileInfo']['url'], json['fileInfo']['fileName'], fingerprintColor, json['fileInfo']['sha256'], json['fileInfo']['aesKey']);
+            } else if (json.hasOwnProperty('imageInfo')) {
+                const imageInfo = json['imageInfo'];
+                const nickname = getNickname(publicKeyHash);
+                const fingerprint = getShortHash(publicKeyHash);
+                const fingerprintColor = getColorFromSHA256(publicKeyHash);
+                const downloadUrl = imageInfo['url'];
+                const expectedHash = imageInfo['sha256'];
+                const aesKeyBase64 = imageInfo['aesKey'];
+                const imagePrefix = imageInfo['imagePrefix'];
+
+                downloadAndDecryptImage(imagePrefix, downloadUrl, aesKeyBase64, expectedHash, (decryptedImageBase64) => {
+                    appendImageToChatBox(nickname, fingerprint, decryptedImageBase64, fingerprintColor);
+                });
+            }
+
+            else {
                 console.warn(`Unknown field: ${key}`);
                 // TODO: 传base64File的时候，有一些字段是会走到这里的，所以这里暂时不能false，有空把前面的封装一遍。
                 // isNewMessageFlag = false;
@@ -963,6 +1259,7 @@ function handleIncomeMessageJsonFields(publicKeyHash, json) {
         updatePageTitle();
     }
 }
+
 
 function createImagePlaceholder(nickname, fingerprint, fingerprintColor, imageKey, imageId) {
     const chatBox = document.getElementById('chat-box');
