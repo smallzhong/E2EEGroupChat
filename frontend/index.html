@@ -13,7 +13,8 @@
 
 <body>
     <!-- Main container, this will be toggled -->
-    <div class="container-fluid vh-100 p-0" id="chat-container" style="display:none;">
+    <div class="container-fluid vh-100 p-0" id="chat-container" style="display:none;" ondragover="handleDragOver(event)"
+        ondrop="handleDrop(event)">
         <div class="d-flex flex-column h-100 border rounded shadow-sm bg-white overflow-hidden position-relative">
             <div id="top-bar" class="d-flex justify-content-between p-2 bg-light border-bottom">
                 <div id="channel-info"><span id="current-channel-id"></span></div>
@@ -31,9 +32,9 @@
                 <button id="upload-image-button" class="btn btn-secondary btn-sm">上传图片</button>
                 <button id="upload-file-button" class="btn btn-secondary btn-sm">上传文件</button>
                 <button id="send-message-button" class="btn btn-primary btn-sm">发送</button>
-                <input type="file" id="image-input" style="display: none;" accept="image/*">
-                <input type="file" id="file-input" style="display: none;">
-                <div id="image-preview" style="margin-top: 10px;"></div>
+                <input type="file" id="image-input" style="display: none;" accept="image/*" multiple>
+                <input type="file" id="file-input" style="display: none;" multiple>
+                <div id="previews-container" style="margin-top: 10px;"></div> <!-- 新增一个容器来存放预览 -->
             </div>
         </div>
     </div>
@@ -74,8 +75,7 @@
 
         <h4>How It Works:</h4>
         <ol>
-            <li>Open the E2EEGroupChat application and enter the channel ID via the URL, e.g., <code
-                    id="example-channel-code">example.com/?lounge</code>.</li>
+            <li>Open the E2EEGroupChat application and enter the channel ID or simply click on a buttons to join one of the pre-made channels.</li>
             <li>The application generates an RSA key pair and sends the public key to the server.</li>
             <li>The server forwards the public keys of other users, and the frontend stores these public keys.</li>
             <li>Users send messages; the frontend encrypts messages using the AES key, and the server only forwards
