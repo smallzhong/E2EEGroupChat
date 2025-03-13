@@ -2,11 +2,11 @@
 
 [中文README](README_CN.MD) 
 
-E2EEGroupChat is a real-time end-to-end encrypted (E2EE) group chat application based on WebSocket. Using RSA and AES encryption technologies, it ensures that messages are not exposed to the server or any third parties during transmission. **The design philosophy of this application considers the server as a potentially malicious middleman**. Therefore, the server does not store any plaintext or keys; it only forwards encrypted messages. Even if the server is compromised and becomes a malicious middleman, the attackers cannot eavesdrop on any user messages. **For detailed encryption process, see the swim lane diagram: https://chat.yuchu.space/swim-lane-en.html**.
+E2EEGroupChat is a real-time end-to-end encrypted (E2EE) group chat application based on WebSocket. Using RSA and AES encryption technologies, it ensures that messages are not exposed to the server or any third parties during transmission. **The design philosophy of this application considers the server as a potentially malicious middleman**. Therefore, the server does not store any plaintext or keys; it only forwards encrypted messages. Even if the server is compromised and becomes a malicious middleman, the attackers cannot eavesdrop on any user messages. **For detailed encryption process, see the swim lane diagram: https://chat.0f31.com/swim-lane-en.html**.
 
 ## Project Preview
 
-You can try it out at https://chat.yuchu.space/?lounge.
+You can try it out at https://chat.0f31.com/.
 
 ## Features
 
@@ -24,7 +24,7 @@ You can try it out at https://chat.yuchu.space/?lounge.
 
 ## Usage Instructions
 
-1. Open the E2EEGroupChat application and enter the channel ID. The channel ID can be specified via URL parameter, e.g., `https://chat.yuchu.space/?lounge`.
+1. Open https://chat.0f31.com/ and follow the prompts to join a channel. You can choose to join a channel with a random name of your own, or join preset channels like `lounge` for chatting. The channel name is encrypted for the server, and the server can only see a hash of the channel. Even if the server is compromised by attackers, they cannot know or join the user's channel.
 2. Upon successful connection, the application will generate an RSA key pair and send the public key to the server.
 3. The server will forward the public keys of other users, and the frontend will store these public keys.
 4. Users enter messages and send them; the frontend encrypts messages using the AES key, and the server only forwards encrypted messages.
@@ -37,14 +37,9 @@ You can try it out at https://chat.yuchu.space/?lounge.
 - **AES Encryption**: Used to encrypt message content, ensuring messages are not intercepted during transmission.
 - **Dynamic Key Updates**: New AES keys are generated when users join or leave a channel, preventing new users from decrypting previous messages and old users from decrypting subsequent messages.
 
-## TODO
+## Acknowledgements
 
--  **Improve AES Key Generation Mechanism**: The current AES key regeneration code has flaws. If a user disconnects but the heartbeat check hasn't detected it yet, causing them to remain in the user list, AES key generation may fail. A mechanism needs to be added to kick out the user who cannot generate the AES key and let another user generate the key.
--  **Support User-Defined RSA Private Keys**: Allow users to input their own RSA private keys, enabling others to verify the user’s identity through their public key signature, similar to 4chan's tripcode. Otherwise, generating a new key pair each time will prevent user identity verification.
--  **Support Custom Nicknames**: Allow users to set their own nicknames to enhance user experience.
--  **Optimize Frontend User Display**: Modify the frontend to display nicknames and parts of their signatures instead of just SHA256 hashes. Generate a unique color for each user based on their RSA signature, making it easier to distinguish between different chat participants.
--  **Support Markdown Syntax**: Allow users to use Markdown syntax in messages and fix the issue of line breaks not displaying properly.
--  **Support image sharing**: Allow users to share images in the chat, ensuring that images are also protected with end-to-end encryption.
+- Special thanks to [rao2357](https://github.com/rao2357) and [zouxianyu](https://github.com/zouxianyu) for their contributions to the cryptographic protocol design of the project.
 
 ## Contribution Guidelines
 

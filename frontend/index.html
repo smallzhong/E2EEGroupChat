@@ -1,28 +1,105 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secure Chat Room</title>
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/node-forge@1.0.0/dist/forge.min.js"></script>
-    <link rel="stylesheet" href="style.css">
-    <!-- <link rel="icon" type="image/webp" href="logo.webp"> -->
+    <link id="dynamic-stylesheet" rel="stylesheet" href="style_home-container.css">
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
 </head>
+
 <body>
-    <div class="container-fluid vh-100 p-0">
-        <div id="chat-container" class="d-flex flex-column h-100 border rounded shadow-sm bg-white overflow-hidden position-relative">
+    <!-- Main container, this will be toggled -->
+    <div class="container-fluid vh-100 p-0" id="chat-container" style="display:none;" ondragover="handleDragOver(event)"
+        ondrop="handleDrop(event)">
+        <div class="d-flex flex-column h-100 border rounded shadow-sm bg-white overflow-hidden position-relative">
             <div id="top-bar" class="d-flex justify-content-between p-2 bg-light border-bottom">
                 <div id="channel-info"><span id="current-channel-id"></span></div>
                 <div id="status-message">正在连接...</div>
-                <button id="toggle-users-list" class="btn btn-primary btn-sm" data-toggle="modal" data-target="#usersModal">在线用户</button>
-                <button id="set-nickname-button" class="btn btn-secondary btn-sm" data-toggle="modal" data-target="#nicknameModal">设置昵称</button>
+                <button id="toggle-users-list" class="btn btn-primary btn-sm" data-toggle="modal"
+                    data-target="#usersModal">在线用户</button>
+                <button id="set-nickname-button" class="btn btn-secondary btn-sm" data-toggle="modal"
+                    data-target="#nicknameModal">设置昵称</button>
+                <button id="view-rsa-keys-button" class="btn btn-info btn-sm" onclick="displayRSAModal()">查看 RSA
+                    密钥</button>
             </div>
             <div id="chat-box" class="flex-grow-1 p-2 overflow-auto"></div>
             <div id="input-container" class="border-top p-2 bg-light">
                 <textarea id="input-message" class="form-control" placeholder="Enter message..." disabled></textarea>
+                <button id="upload-image-button" class="btn btn-secondary btn-sm">上传图片</button>
+                <button id="upload-file-button" class="btn btn-secondary btn-sm">上传文件</button>
+                <button id="send-message-button" class="btn btn-primary btn-sm">发送</button>
+                <input type="file" id="image-input" style="display: none;" accept="image/*" multiple>
+                <input type="file" id="file-input" style="display: none;" multiple>
+                <div id="previews-container" style="margin-top: 10px;"></div> <!-- 新增一个容器来存放预览 -->
             </div>
         </div>
+    </div>
+
+    <!-- Homepage container, this will be toggled -->
+    <div class="container" id="home-container">
+        <h1>Welcome to E2EEGroupChat</h1>
+        <p>Join or create your own end-to-end encrypted (E2EE) chat channel by entering a channel name below.</p>
+        <p>Here's a random channel generated just for you:</p>
+
+        <div>
+            <input type="text" id="channel-name-input" placeholder="Enter channel name here..." class="form-control" />
+            <button id="join-channel-button" class="btn btn-primary mt-2">Join Channel</button>
+        </div>
+
+        <h4>Here are some pre-made channels you can join:</h4>
+        <button onclick="joinChannelProcess('lounge')" class="btn btn-primary">lounge</button>
+        <button onclick="joinChannelProcess('programming')" class="btn btn-primary">programming</button>
+        <button onclick="joinChannelProcess('games')" class="btn btn-primary">games</button>
+
+        <!-- <p>Here's a random channel generated just for you:</p>
+        <span id="random-channel-id-display">Generating...</span>
+        <button id="join-random-channel-button" class="btn btn-link">Join Random Channel</button> -->
+
+        <h4>Features:</h4>
+        <ul class="feature-list">
+            <li><strong>End-to-End Encryption:</strong> Uses RSA and AES encryption to ensure that only the sender and
+                receiver can decrypt messages.</li>
+            <li><strong>Forward and Backward Secrecy:</strong> New AES keys are generated when users join or leave a
+                channel, ensuring message privacy.</li>
+            <li><strong>Real-Time Communication:</strong> Low-latency message transmission via WebSocket.</li>
+            <li><strong>Online User List:</strong> Displays current online users in real-time.</li>
+            <li><strong>Simple and User-Friendly Interface:</strong> Responsive design that adapts to various devices.
+            </li>
+            <li><strong>Image Sharing:</strong> Users can share images, which are also protected with end-to-end
+                encryption.</li>
+        </ul>
+
+        <h4>How It Works:</h4>
+        <ol>
+            <li>Open the E2EEGroupChat application and enter the channel ID or simply click on a buttons to join one of the pre-made channels.</li>
+            <li>The application generates an RSA key pair and sends the public key to the server.</li>
+            <li>The server forwards the public keys of other users, and the frontend stores these public keys.</li>
+            <li>Users send messages; the frontend encrypts messages using the AES key, and the server only forwards
+                encrypted messages.</li>
+            <li>When a new user joins or a user leaves, the frontend generates a new AES key and distributes it
+                encrypted to other users.</li>
+            <li>No cookies are used, and closing the window will result in the loss of all chat messages.</li>
+        </ol>
+
+        <h4>Security Mechanisms:</h4>
+        <ul class="feature-list">
+            <li><strong>RSA Encryption:</strong> Used to encrypt AES keys for secure key transmission.</li>
+            <li><strong>AES Encryption:</strong> Used to encrypt message content during transmission.</li>
+            <li><strong>Dynamic Key Updates:</strong> New AES keys are generated when users join or leave a channel.
+            </li>
+        </ul>
+
+        <h4>License:</h4>
+        <p>This project is licensed under the MIT License.</p>
+
+        <h4>Project Information:</h4>
+        <p>This project is open-source and available on GitHub. If you find it useful, please give it a star!</p>
+        <p>GitHub Repository: <a href="https://github.com/smallzhong/E2EEGroupChat"
+                target="_blank">https://github.com/smallzhong/E2EEGroupChat</a></p>
     </div>
 
     <!-- Users Modal -->
@@ -66,9 +143,34 @@
         </div>
     </div>
 
+    <!-- RSA Keys Modal -->
+    <div class="modal fade" id="rsaKeysModal" tabindex="-1" aria-labelledby="rsaKeysModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="rsaKeysModalLabel">查看/保存 RSA 密钥</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <textarea id="rsa-key-display" class="form-control" rows="8" readonly></textarea>
+                    <textarea id="rsa-key-input" class="form-control mt-2" rows="8"
+                        placeholder="粘贴您的私钥以加载..."></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+                    <button type="button" class="btn btn-primary" onclick="copyToClipboard()">复制密钥</button>
+                    <button type="button" class="btn btn-success" onclick="loadPrivateKey()">加载密钥</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.5.1/jquery.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
     <script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/js/bootstrap.min.js"></script>
     <script src="chat.js"></script>
 </body>
+
 </html>

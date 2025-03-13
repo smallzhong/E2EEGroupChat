@@ -17,16 +17,19 @@
             participant Frontend as Frontend Application
             participant Server as WebSocket Server
 
-            User ->> Frontend: 打开聊天页面 (URL 包含频道 ID)
-            Frontend ->> Frontend: 从 URL 中获取频道 ID
+            User ->> Frontend: 打开聊天页面 (https://chat.0f31.com/)
+            Frontend ->> Frontend: 显示随机生成的频道名称或选择预设频道
+            User ->> Frontend: 选择频道
             Frontend ->> Frontend: 生成 RSA 密钥对
+            Frontend ->> Frontend: 计算频道名称的 HMAC
             Frontend ->> Server: 连接到 WebSocket 服务器
             Server ->> Frontend: 确认连接
-            Frontend ->> Server: 发送加入频道请求（公钥和频道 ID）
-            Server ->> Server: 处理加入频道请求
+            Frontend ->> Server: 发送加入频道请求（公钥、频道 ID HMAC、公钥签名）
+            Server ->> Server: 验证公钥签名
             Server ->> Server: 生成公钥哈希并存储
             Server ->> Server: 更新频道用户列表
-            Server ->> Frontend: 返回频道内其他用户的公钥
+            Server ->> Frontend: 返回频道内其他用户的公钥和签名
+            Frontend ->> Frontend: 验证其他用户的公钥签名
             Frontend ->> Frontend: 存储其他用户的公钥
             Frontend ->> Frontend: 生成 AES 密钥
             Frontend ->> Server: 加密 AES 密钥并发送给其他用户

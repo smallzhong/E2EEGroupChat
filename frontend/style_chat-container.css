@@ -14,6 +14,12 @@
     flex-direction: column;
 }
 
+/* 拖拽时的样式 */
+#chat-container.dragover {
+    border: 2px dashed #007bff;
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
 /* 聊天框样式 */
 #chat-box {
     flex-grow: 1;
@@ -80,4 +86,13 @@
     .modal-body {
         overflow-y: auto;
     }
+}
+
+#chat-box p {
+    white-space: pre-wrap; /* 保留空格和自动换行 */
+}
+
+.preview-item {
+    display: inline-block;
+    margin: 10px;
 }
