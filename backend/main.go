@@ -32,18 +32,24 @@ var Channels = make(map[string][]ClientInfo, 10)
 const HEARTBEAT_INTERVAL int = 3
 
 type ClientInfo struct {
-	Connect        *websocket.Conn
-	ChannelID      string
-	PublickKey     string
-	PublickKeyHash string
+	Connect            *websocket.Conn
+	ChannelID          string
+	PublickKey         string
+	PublickKeyHash     string
+	ChannelIDSignature string
 }
 type SocketMessage struct {
-	Action           string `json:"action"`
-	EncryptedMessage string `json:"encrypted_message"`
-	PublicKey        string `json:"public_key"`
-	PublicKeyHash    string `json:"public_key_hash"`
-	EncryptedKey     string `json:"encrypted_key"`
-	ChannelID        string `json:"channel_id"`
+	Action              string `json:"action"`
+	EncryptedMessage    string `json:"encrypted_message"`
+	PublicKey           string `json:"public_key"`
+	PublicKeyHash       string `json:"public_key_hash"`
+	EncryptedKey        string `json:"encrypted_key"`
+	ChannelID           string `json:"channel_id"`
+	ChannelIDSignature  string `json:"channel_id_signature"`
+	SenderPublicKeyHash string `json:"sender_public_key_hash"`
+	Nonce               string `json:"nonce"`
+	TimeStamp           int64  `json:"timestamp"`
+	Signature           string `json:"signature"`
 }
 
 //	func handleWebSocket(conn net.Conn) {
@@ -84,6 +90,11 @@ func SendPublicKey(channel_id string) {
 					Action:        "receive_public_key",
 					PublicKey:     otherclientInfo.PublickKey,
 					PublicKeyHash: otherclientInfo.PublickKeyHash,
+					// # 这里加一个字段，hmac(channel_id, 自己公钥签名)。
+					// # 接收的时候如果这个值不对，说明这个人不知道channel_id的真实值。
+					// # 服务器能知道别人用的这个签名，但是那是别人的公钥，自己的公钥的签名无从得知，那signature字段就是非法的，还是过不去校验。
+					// # 这里要从全局列表取。
+					ChannelIDSignature: otherclientInfo.ChannelIDSignature,
 				}
 				// messagejson,err:=json.Marshal(message)
 				// if err!=nil{
@@ -147,6 +158,7 @@ func join_channel(websocketdata SocketMessage, client_info *ClientInfo) {
 
 	client_info.PublickKey = public_keystr
 	client_info.PublickKeyHash, err = HashPublicKey(public_keystr)
+	client_info.ChannelIDSignature = websocketdata.ChannelIDSignature
 	client_info.ChannelID = channels_id
 	if err != nil {
 		log.Printf("hash公钥失败")
@@ -155,18 +167,28 @@ func join_channel(websocketdata SocketMessage, client_info *ClientInfo) {
 	_, exists := Channels[channels_id]
 	if exists {
 		Channels[channels_id] = append(Channels[channels_id], *client_info)
+		SendPublicKey(channels_id)
 	} else {
 		Channels[channels_id] = []ClientInfo{*client_info}
 	}
-	SendPublicKey(channels_id)
+
 }
 func send_key(websocketdata SocketMessage) {
 	channel_id := websocketdata.ChannelID
 	encrypted_key := websocketdata.EncryptedKey
 	public_key_hash := websocketdata.PublicKeyHash
+	sender_public_key_hash := websocketdata.SenderPublicKeyHash
+	nonce := websocketdata.Nonce
+	timestamp := websocketdata.TimeStamp
+	signature := websocketdata.Signature
 	for _, client_info := range Channels[channel_id] {
 		if client_info.PublickKeyHash == public_key_hash {
-			message := SocketMessage{Action: "receive_key", EncryptedKey: encrypted_key}
+			message := SocketMessage{Action: "receive_key", EncryptedKey: encrypted_key,
+				PublicKeyHash:       public_key_hash,
+				SenderPublicKeyHash: sender_public_key_hash,
+				Nonce:               nonce, TimeStamp: timestamp,
+				Signature:          signature,
+				ChannelIDSignature: websocketdata.ChannelIDSignature}
 			client_info.Connect.WriteJSON(message)
 		}
 	}
@@ -222,7 +244,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			log.Printf("self.handle_client_disconnect(client_info)")
 			handle_client_disconnect(client_info)
 		}
-		log.Printf("收到消息: %s\n", string(p))
+
+		// log.Printf("收到消息: %s\n", string(p))
 		var socketMessage SocketMessage
 		json.Unmarshal(p, &socketMessage)
 		if socketMessage.Action != "" {
@@ -234,7 +257,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				send_message(socketMessage, client_info)
 			}
 		}
-
+		if socketMessage.Action != "heartbeat" {
+			log.Printf("收到消息: %s\n", string(p))
+		}
 		// // 向客户端发送响应消息
 		// err = conn.WriteMessage(messageType, p)
 		// if err != nil {
@@ -247,9 +272,12 @@ func main() {
 	http.HandleFunc("/", handleWebSocket)
 	log.Println("WebSocket服务器启动，监听端口: 8765")
 	// 启动HTTP服务器
-	certFile := "chat.yuchu.space.pem"
-    keyFile := "chat.yuchu.space.key"
-	if err := http.ListenAndServeTLS(":8765",certFile,keyFile ,nil); err != nil {
+	// certFile := "chat.yuchu.space.pem"
+	// keyFile := "chat.yuchu.space.key"
+	// if err := http.ListenAndServeTLS(":8765", certFile, keyFile, nil); err != nil {
+	// 	log.Fatal("服务器启动失败:", err)
+	// }
+	if err := http.ListenAndServe(":8765", nil); err != nil {
 		log.Fatal("服务器启动失败:", err)
 	}
 }
