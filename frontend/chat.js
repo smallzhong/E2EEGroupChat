@@ -1,4 +1,4 @@
-const g_uri = 'ws://192.168.150.129:8765';
+const g_uri = 'wss://chat.yuchu.space:8765';
 const g_fileServerBaseUrl = "https://filebase.yuchu.space";
 const nonceLifeTime = 300000; // nonce的生命是5分钟
 const nonceCleanUpInterval = 60000; // 每隔1分钟清理一次nonce
