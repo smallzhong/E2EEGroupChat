@@ -16,8 +16,7 @@ g_check_gap = 360  # 多久检查一次，暂时6分钟
 app = Flask(__name__)
 
 # 允许的CORS域名
-cors_origins = ["http://127.0.0.1", "http://localhost", "https://chat.0f31.com", "http://chat.0f31.com",
-                "https://ws.0f31.com", "http://ws.0f31.com"]
+cors_origins = "*"
 
 # 初始化CORS支持
 CORS(app, origins=cors_origins)
